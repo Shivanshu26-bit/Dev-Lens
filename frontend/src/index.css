@@ -1,0 +1,8 @@
+@import "tailwindcss";
+
+/* Custom scrollbars and styling tweaks if needed */
+@layer base {
+  body {
+    @apply bg-zinc-950 text-zinc-100 antialiased selection:bg-indigo-500 selection:text-white;
+  }
+}

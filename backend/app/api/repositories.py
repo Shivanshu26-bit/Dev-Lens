@@ -1,0 +1,213 @@
+from fastapi import APIRouter, HTTPException, status
+from pydantic import BaseModel, Field
+from typing import List, Optional
+from app.services.github_url import parse_github_url
+from app.services.github_service import (
+    GitHubService,
+    GitHubNotFoundError,
+    GitHubRateLimitError,
+    GitHubAPIError
+)
+
+from app.analyzers.repository_analyzer import analyze_repository as run_repo_analysis
+
+router = APIRouter(prefix="/api/repositories", tags=["repositories"])
+
+class AnalyzeRequest(BaseModel):
+    url: str = Field(..., description="The GitHub repository URL to ingest (e.g. https://github.com/owner/repo)")
+
+class RepositoryMetadata(BaseModel):
+    owner: str
+    name: str
+    full_name: str
+    description: Optional[str] = None
+    default_branch: str
+    language: Optional[str] = None
+    stars: int
+    forks: int
+    open_issues: int
+    url: str
+
+class TreeItem(BaseModel):
+    path: str
+    type: str  # "file" or "directory"
+
+class AnalyzeResponse(BaseModel):
+    repository: RepositoryMetadata
+    tree: List[TreeItem]
+
+# Phase 3 Analysis Report Schemas
+class AnalysisSummary(BaseModel):
+    total_files: int
+    analyzed_files: int
+    skipped_files: int
+    source_files: int
+    test_files: int
+    documentation_files: int
+    configuration_files: int
+    asset_files: int
+    unknown_files: int
+
+class LanguageDistribution(BaseModel):
+    language: str
+    file_count: int
+    percentage: float
+
+class FileMetrics(BaseModel):
+    path: str
+    language: str
+    category: str
+    size_bytes: int
+    line_count: int
+    code_lines: int
+    comment_lines: int
+    blank_lines: int
+
+class SizeMetric(BaseModel):
+    path: str
+    size_bytes: int
+
+class LinesMetric(BaseModel):
+    path: str
+    line_count: int
+
+class RepoMetrics(BaseModel):
+    total_lines: int
+    code_lines: int
+    comment_lines: int
+    blank_lines: int
+    largest_files_by_size: List[SizeMetric]
+    largest_files_by_lines: List[LinesMetric]
+
+class Finding(BaseModel):
+    id: str
+    severity: str
+    category: str
+    title: str
+    description: str
+    file: str
+    line: int
+    recommendation: str
+
+class AnalysisMetadata(BaseModel):
+    files_analyzed: int
+    files_skipped: int
+    skip_reasons: dict
+
+class AnalysisReport(BaseModel):
+    repository: RepositoryMetadata
+    summary: AnalysisSummary
+    languages: List[LanguageDistribution]
+    files: List[FileMetrics]
+    metrics: RepoMetrics
+    findings: List[Finding]
+    analysis_metadata: AnalysisMetadata
+    tree: List[TreeItem]
+
+
+@router.post("/analyze", response_model=AnalyzeResponse)
+async def analyze_repository(payload: AnalyzeRequest):
+    """
+    Ingests a public GitHub repository, validating its URL, retrieving
+    its metadata, and fetching its repository tree structure.
+    """
+    # 1. Parse and validate GitHub URL
+    try:
+        owner, repo = parse_github_url(payload.url)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+        
+    # 2. Fetch data from GitHub API service
+    github_service = GitHubService()
+    try:
+        metadata = await github_service.get_repo_metadata(owner, repo)
+        
+        branch = metadata.get("default_branch", "main")
+        tree_items = await github_service.get_repo_tree(owner, repo, branch)
+        
+        # 3. Format response schemas
+        repo_metadata = RepositoryMetadata(
+            owner=metadata["owner"],
+            name=metadata["name"],
+            full_name=metadata["full_name"],
+            description=metadata["description"],
+            default_branch=metadata["default_branch"],
+            language=metadata["language"],
+            stars=metadata["stars"],
+            forks=metadata["forks"],
+            open_issues=metadata["open_issues"],
+            url=metadata["url"]
+        )
+        
+        formatted_tree = [
+            TreeItem(path=item["path"], type=item["type"])
+            for item in tree_items
+        ]
+        
+        return AnalyzeResponse(
+            repository=repo_metadata,
+            tree=formatted_tree
+        )
+        
+    except GitHubNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
+    except GitHubRateLimitError as e:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=str(e)
+        )
+    except GitHubAPIError as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(e)
+        )
+
+@router.post("/analyze/report", response_model=AnalysisReport)
+async def analyze_repository_report(payload: AnalyzeRequest):
+    """
+    Runs the full static analysis engine on a public GitHub repository
+    and returns a structured engineering report.
+    """
+    # 1. Parse and validate GitHub URL
+    try:
+        owner, repo = parse_github_url(payload.url)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+        
+    # 2. Fetch repo tree and metadata, then run static analysis engine
+    github_service = GitHubService()
+    try:
+        metadata = await github_service.get_repo_metadata(owner, repo)
+        
+        branch = metadata.get("default_branch", "main")
+        tree_items = await github_service.get_repo_tree(owner, repo, branch)
+        
+        # Invoke central static analysis report engine
+        report = await run_repo_analysis(owner, repo, metadata, tree_items)
+        return report
+        
+    except GitHubNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
+    except GitHubRateLimitError as e:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=str(e)
+        )
+    except GitHubAPIError as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(e)
+        )
+
