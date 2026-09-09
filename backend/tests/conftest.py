@@ -1,3 +1,4 @@
+import uuid
 import pytest
 from sqlalchemy import create_engine, event
 from sqlalchemy.pool import StaticPool
@@ -5,9 +6,10 @@ from sqlalchemy.orm import sessionmaker
 
 from app.db.base import Base
 from app.db.session import get_db
+from app.api.auth import get_current_user
 from app.main import app
 # Import all models to ensure they register on Base.metadata
-from app.models import Repository, AnalysisRun
+from app.models import User, UserSession, Repository, AnalysisRun
 
 
 # In-memory SQLite engine with StaticPool to share connection across threads
@@ -49,3 +51,33 @@ def override_get_db(db_session):
     app.dependency_overrides[get_db] = _override
     yield
     app.dependency_overrides.pop(get_db, None)
+
+
+@pytest.fixture(autouse=True)
+def override_current_user(request, db_session):
+    """
+    Automatically provides an authenticated test user for existing pipeline/analyzer tests.
+    Tests marked with @pytest.mark.unauthenticated or @pytest.mark.skip_auth_mock
+    bypass this override to test real 401/cookie authentication behavior.
+    """
+    if "unauthenticated" in request.keywords or "skip_auth_mock" in request.keywords:
+        yield None
+    else:
+        user = User(
+            id=uuid.UUID("00000000-0000-0000-0000-000000000001"),
+            github_user_id="1000001",
+            github_login="devlens-tester",
+            name="DevLens Tester",
+            email="tester@devlens.local",
+            avatar_url="https://avatars.githubusercontent.com/u/1000001?v=4"
+        )
+        db_session.add(user)
+        db_session.commit()
+        db_session.refresh(user)
+
+        def _override():
+            return user
+
+        app.dependency_overrides[get_current_user] = _override
+        yield user
+        app.dependency_overrides.pop(get_current_user, None)

@@ -170,3 +170,14 @@ export interface AIAnalyzeResponse {
   deterministic_analysis: AnalysisReport;
   ai_analysis: AIAnalysisReport;
 }
+
+// Phase 5B Authentication Interfaces
+export interface User {
+  id: string;
+  github_user_id: string;
+  github_login: string;
+  name: string | null;
+  email: string | null;
+  avatar_url: string | null;
+  created_at: string;
+}

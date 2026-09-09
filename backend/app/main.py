@@ -4,6 +4,7 @@ from app.core.config import settings
 
 from app.api.repositories import router as repositories_router
 from app.api.analyses import router as analyses_router
+from app.api.auth import router as auth_router
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -12,6 +13,7 @@ app = FastAPI(
 )
 
 # Register routers
+app.include_router(auth_router)
 app.include_router(repositories_router)
 app.include_router(analyses_router)
 

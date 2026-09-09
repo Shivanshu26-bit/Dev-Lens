@@ -19,7 +19,10 @@ from app.services.analysis_persistence import (
 client = TestClient(app)
 
 
-def test_get_repository_by_id_endpoint(db_session: Session):
+from app.models.user import User
+
+
+def test_get_repository_by_id_endpoint(db_session: Session, override_current_user: User):
     """Test GET /api/repositories/{repository_id} endpoint."""
     metadata = {
         "owner": "testorg",
@@ -28,7 +31,9 @@ def test_get_repository_by_id_endpoint(db_session: Session):
         "language": "TypeScript",
         "description": "Awesome project"
     }
-    repo = create_or_update_repository(db_session, metadata, "https://github.com/testorg/project-x")
+    repo = create_or_update_repository(
+        db_session, metadata, "https://github.com/testorg/project-x", user_id=override_current_user.id
+    )
 
     response = client.get(f"/api/repositories/{repo.id}")
     assert response.status_code == 200
@@ -47,10 +52,12 @@ def test_get_repository_by_id_not_found():
     assert f"Repository '{random_id}' not found" in response.json()["detail"]
 
 
-def test_get_repository_analyses_endpoint(db_session: Session):
+def test_get_repository_analyses_endpoint(db_session: Session, override_current_user: User):
     """Test GET /api/repositories/{repository_id}/analyses endpoint."""
     metadata = {"owner": "testorg", "name": "project-y", "stars": 10}
-    repo = create_or_update_repository(db_session, metadata, "https://github.com/testorg/project-y")
+    repo = create_or_update_repository(
+        db_session, metadata, "https://github.com/testorg/project-y", user_id=override_current_user.id
+    )
 
     run1 = create_analysis_run(db_session, repo.id, AnalysisType.DETERMINISTIC.value)
     run2 = create_analysis_run(db_session, repo.id, AnalysisType.AI.value)
@@ -70,10 +77,12 @@ def test_get_repository_analyses_not_found():
     assert response.status_code == 404
 
 
-def test_get_analysis_by_id_endpoint(db_session: Session):
+def test_get_analysis_by_id_endpoint(db_session: Session, override_current_user: User):
     """Test GET /api/analyses/{analysis_id} endpoint."""
     metadata = {"owner": "testorg", "name": "project-z"}
-    repo = create_or_update_repository(db_session, metadata, "https://github.com/testorg/project-z")
+    repo = create_or_update_repository(
+        db_session, metadata, "https://github.com/testorg/project-z", user_id=override_current_user.id
+    )
 
     run = create_analysis_run(db_session, repo.id, AnalysisType.DETERMINISTIC.value)
     save_deterministic_results(db_session, run.id, {

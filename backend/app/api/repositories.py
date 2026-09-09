@@ -4,7 +4,9 @@ from typing import List, Optional
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
+from app.models.user import User
 from app.models.analysis import AnalysisType
+from app.api.auth import get_current_user
 from app.schemas.persistence_schemas import RepositoryResponse, AnalysisRunSummaryResponse
 from app.services.repository_persistence import (
     create_or_update_repository,
@@ -142,7 +144,11 @@ class AIAnalyzeResponse(BaseModel):
 
 
 @router.post("/analyze", response_model=AnalyzeResponse)
-async def analyze_repository(payload: AnalyzeRequest, db: Session = Depends(get_db)):
+async def analyze_repository(
+    payload: AnalyzeRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     """
     Ingests a public GitHub repository, validating its URL, retrieving
     its metadata, and fetching its repository tree structure.
@@ -164,8 +170,8 @@ async def analyze_repository(payload: AnalyzeRequest, db: Session = Depends(get_
         branch = metadata.get("default_branch", "main")
         tree_items = await github_service.get_repo_tree(owner, repo, branch)
         
-        # Persist repository metadata
-        create_or_update_repository(db, metadata, payload.url)
+        # Persist repository metadata scoped to user
+        create_or_update_repository(db, metadata, payload.url, user_id=current_user.id)
 
         # 3. Format response schemas
         repo_metadata = RepositoryMetadata(
@@ -208,7 +214,11 @@ async def analyze_repository(payload: AnalyzeRequest, db: Session = Depends(get_
         )
 
 @router.post("/analyze/report", response_model=AnalysisReport)
-async def analyze_repository_report(payload: AnalyzeRequest, db: Session = Depends(get_db)):
+async def analyze_repository_report(
+    payload: AnalyzeRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     """
     Runs the full static analysis engine on a public GitHub repository
     and returns a structured engineering report.
@@ -230,7 +240,7 @@ async def analyze_repository_report(payload: AnalyzeRequest, db: Session = Depen
         branch = metadata.get("default_branch", "main")
         tree_items = await github_service.get_repo_tree(owner, repo, branch)
         
-        repo_record = create_or_update_repository(db, metadata, payload.url)
+        repo_record = create_or_update_repository(db, metadata, payload.url, user_id=current_user.id)
         run_record = create_analysis_run(db, repo_record.id, AnalysisType.DETERMINISTIC.value)
         mark_analysis_running(db, run_record.id)
 
@@ -263,7 +273,11 @@ async def analyze_repository_report(payload: AnalyzeRequest, db: Session = Depen
 
 
 @router.post("/analyze/ai", response_model=AIAnalyzeResponse)
-async def analyze_repository_ai(payload: AnalyzeRequest, db: Session = Depends(get_db)):
+async def analyze_repository_ai(
+    payload: AnalyzeRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     """
     Ingests a public GitHub repository, executes deterministic Phase 3 static analysis,
     selects prioritized code evidence with secret redaction, and invokes the Gemini AI
@@ -285,7 +299,7 @@ async def analyze_repository_ai(payload: AnalyzeRequest, db: Session = Depends(g
         branch = metadata.get("default_branch", "main")
         tree_items = await github_service.get_repo_tree(owner, repo, branch)
 
-        repo_record = create_or_update_repository(db, metadata, payload.url)
+        repo_record = create_or_update_repository(db, metadata, payload.url, user_id=current_user.id)
         run_record = create_analysis_run(db, repo_record.id, AnalysisType.AI.value)
         mark_analysis_running(db, run_record.id)
 
@@ -368,11 +382,16 @@ async def analyze_repository_ai(payload: AnalyzeRequest, db: Session = Depends(g
 
 
 @router.get("/{repository_id}", response_model=RepositoryResponse)
-def get_repository(repository_id: str, db: Session = Depends(get_db)):
+def get_repository(
+    repository_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     """
     Retrieves a persisted repository record by its UUID primary key.
+    Enforces user ownership and returns 404 if not found or unauthorized.
     """
-    repo = get_repository_by_id(db, repository_id)
+    repo = get_repository_by_id(db, repository_id, user_id=current_user.id)
     if not repo:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -382,16 +401,22 @@ def get_repository(repository_id: str, db: Session = Depends(get_db)):
 
 
 @router.get("/{repository_id}/analyses", response_model=List[AnalysisRunSummaryResponse])
-def get_repository_analyses(repository_id: str, limit: int = 20, db: Session = Depends(get_db)):
+def get_repository_analyses(
+    repository_id: str,
+    limit: int = 20,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     """
     Retrieves historical analysis runs for a repository, ordered by creation date desc.
+    Enforces user ownership and returns 404 if not found or unauthorized.
     """
-    repo = get_repository_by_id(db, repository_id)
+    repo = get_repository_by_id(db, repository_id, user_id=current_user.id)
     if not repo:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Repository '{repository_id}' not found"
         )
-    return get_analyses_by_repository(db, repository_id, limit=limit)
+    return get_analyses_by_repository(db, repository_id, user_id=current_user.id, limit=limit)
 
 

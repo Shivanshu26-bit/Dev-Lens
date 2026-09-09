@@ -50,6 +50,17 @@ class Settings(BaseSettings):
     GITHUB_TOKEN: str = ""
     GEMINI_API_KEY: str = ""
 
+    # GitHub OAuth & Authentication (Phase 5B)
+    SECRET_KEY: str = "devlens-insecure-secret-key-change-in-production-32b"
+    GITHUB_CLIENT_ID: str = ""
+    GITHUB_CLIENT_SECRET: str = ""
+    GITHUB_REDIRECT_URI: str = "http://localhost:8000/api/auth/github/callback"
+    FRONTEND_URL: str = "http://localhost:5173"
+    SESSION_COOKIE_NAME: str = "devlens_session"
+    SESSION_COOKIE_SECURE: bool = False
+    SESSION_COOKIE_SAMESITE: str = "lax"
+    SESSION_EXPIRE_SECONDS: int = 7 * 24 * 3600  # 7 days
+
     # Phase 3 Analysis limits configurations
     MAX_FILES_ANALYZED: int = 100
     MAX_FILE_SIZE_BYTES: int = 200 * 1024  # 200 KB

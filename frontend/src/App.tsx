@@ -22,7 +22,9 @@ import {
   Check,
   Layers,
   Activity,
-  ArrowRight
+  ArrowRight,
+  LogOut,
+  User as UserIcon
 } from 'lucide-react';
 import type { 
   AnalyzeResponse, 
@@ -31,7 +33,8 @@ import type {
   AIAnalysisReport, 
   AIAnalyzeResponse,
   AssessmentRating,
-  PriorityLevel
+  PriorityLevel,
+  User
 } from './types';
 
 const GithubIcon = (props: React.SVGProps<SVGSVGElement>) => (
@@ -79,6 +82,61 @@ export default function App() {
   // Findings state filters
   const [severityFilter, setSeverityFilter] = useState<'all' | 'critical' | 'high' | 'medium' | 'low' | 'info'>('all');
 
+  // Authentication state (Phase 5B)
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authError, setAuthError] = useState<string | null>(null);
+
+  // Check current authenticated user and handle OAuth error redirects
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+        const res = await fetch(`${apiUrl}/api/auth/me`, {
+          credentials: 'include',
+        });
+        if (res.ok) {
+          const userData: User = await res.json();
+          setCurrentUser(userData);
+        } else {
+          setCurrentUser(null);
+        }
+      } catch (err) {
+        setCurrentUser(null);
+      } finally {
+        setAuthLoading(false);
+      }
+    };
+
+    const params = new URLSearchParams(window.location.search);
+    const authErr = params.get('auth_error');
+    if (authErr) {
+      setAuthError(authErr === 'access_denied' ? 'GitHub authorization was cancelled or denied.' : `GitHub sign-in error: ${authErr}`);
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+
+    checkAuth();
+  }, []);
+
+  const handleLogin = () => {
+    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+    window.location.href = `${apiUrl}/api/auth/github/login`;
+  };
+
+  const handleLogout = async () => {
+    try {
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      await fetch(`${apiUrl}/api/auth/logout`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+    } catch (err) {
+      console.error('Logout failed:', err);
+    } finally {
+      setCurrentUser(null);
+    }
+  };
+
   // Ping backend health endpoint on mount to verify CORS connectivity
   useEffect(() => {
     const checkBackendHealth = async () => {
@@ -114,6 +172,11 @@ export default function App() {
     e.preventDefault();
     if (!repoUrl.trim()) return;
 
+    if (!currentUser) {
+      setErrorMsg("Please sign in with GitHub to analyze repositories.");
+      return;
+    }
+
     setIsSubmitting(true);
     setErrorMsg(null);
     setQuickData(null);
@@ -131,6 +194,7 @@ export default function App() {
     try {
       const response = await fetch(endpoint, {
         method: 'POST',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
         },
@@ -345,8 +409,8 @@ export default function App() {
             </div>
           </div>
 
-          {/* Health status indicator */}
-          <div className="flex items-center space-x-3 text-xs">
+          {/* Header right: Health status + User Auth */}
+          <div className="flex items-center space-x-4 text-xs">
             {backendStatus === 'checking' && (
               <div className="flex items-center space-x-2 text-zinc-400">
                 <div className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
@@ -365,6 +429,41 @@ export default function App() {
                 <span>Offline</span>
               </div>
             )}
+
+            {/* Auth status action */}
+            {authLoading ? (
+              <div className="w-24 h-8 bg-zinc-800/70 animate-pulse rounded-xl" />
+            ) : currentUser ? (
+              <div className="flex items-center space-x-2.5 bg-zinc-900/90 border border-zinc-750 pl-2 pr-3 py-1 rounded-full shadow-sm">
+                {currentUser.avatar_url ? (
+                  <img
+                    src={currentUser.avatar_url}
+                    alt={currentUser.github_login}
+                    className="w-5 h-5 rounded-full border border-zinc-700"
+                  />
+                ) : (
+                  <div className="w-5 h-5 rounded-full bg-indigo-900/80 flex items-center justify-center text-indigo-300">
+                    <UserIcon className="w-3 h-3" />
+                  </div>
+                )}
+                <span className="font-semibold text-zinc-200">{currentUser.github_login}</span>
+                <button
+                  onClick={handleLogout}
+                  title="Sign out"
+                  className="text-zinc-400 hover:text-rose-400 transition-colors ml-1 p-0.5 rounded"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={handleLogin}
+                className="inline-flex items-center space-x-2 bg-gradient-to-r from-zinc-800 to-zinc-850 hover:from-zinc-700 hover:to-zinc-750 text-zinc-100 border border-zinc-700 px-3.5 py-1.5 rounded-xl font-medium shadow-sm transition-all hover:border-zinc-500 active:scale-95"
+              >
+                <GithubIcon className="w-3.5 h-3.5 text-white" />
+                <span>Sign in with GitHub</span>
+              </button>
+            )}
           </div>
         </div>
       </header>
@@ -372,6 +471,22 @@ export default function App() {
       {/* Main Container */}
       <main className="flex-grow max-w-7xl w-full mx-auto px-6 py-10 space-y-10">
         
+        {/* Auth Error Banner */}
+        {authError && (
+          <div className="max-w-4xl mx-auto bg-amber-950/40 border border-amber-800/80 text-amber-200 px-4 py-3 rounded-xl flex items-center justify-between text-sm shadow-md">
+            <div className="flex items-center space-x-2.5">
+              <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+              <span>{authError}</span>
+            </div>
+            <button
+              onClick={() => setAuthError(null)}
+              className="text-amber-400 hover:text-amber-200 font-bold ml-4"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
         {/* Hero Section */}
         <section className="text-center space-y-3 max-w-3xl mx-auto">
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-violet-950/60 text-violet-300 border border-violet-800/80 mb-2">
@@ -389,6 +504,22 @@ export default function App() {
         {/* Action Panel: Repository Input */}
         <section className="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-6 md:p-8 shadow-xl backdrop-blur-sm max-w-4xl mx-auto">
           <div className="space-y-5">
+            {!currentUser && !authLoading && (
+              <div className="bg-indigo-950/40 border border-indigo-800/60 rounded-xl p-3.5 flex items-center justify-between text-xs text-indigo-200">
+                <div className="flex items-center space-x-2.5">
+                  <Shield className="w-4 h-4 text-indigo-400 shrink-0" />
+                  <span>GitHub authentication is required to analyze repositories and manage scan ownership.</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleLogin}
+                  className="font-semibold text-indigo-300 hover:text-white underline ml-3 shrink-0"
+                >
+                  Sign in now →
+                </button>
+              </div>
+            )}
+
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <h2 className="text-lg font-bold flex items-center gap-2">

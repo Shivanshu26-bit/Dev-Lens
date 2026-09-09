@@ -145,33 +145,65 @@ def mark_analysis_failed(
 
 def get_analysis_by_id(
     db: Session,
-    analysis_id: Union[uuid.UUID, str]
+    analysis_id: Union[uuid.UUID, str],
+    user_id: Optional[Union[uuid.UUID, str]] = None
 ) -> Optional[AnalysisRun]:
     """
     Retrieves an analysis run record by its UUID primary key.
+    If user_id is supplied, enforces that the parent repository belongs to user_id.
     """
     if isinstance(analysis_id, str):
         try:
             analysis_id = uuid.UUID(analysis_id)
         except ValueError:
             return None
+
+    if isinstance(user_id, str):
+        try:
+            user_id = uuid.UUID(user_id)
+        except ValueError:
+            return None
+
     stmt = select(AnalysisRun).where(AnalysisRun.id == analysis_id)
-    return db.scalars(stmt).first()
+    run = db.scalars(stmt).first()
+    if not run:
+        return None
+
+    if user_id is not None:
+        if run.repository is None or run.repository.user_id != user_id:
+            return None
+
+    return run
 
 
 def get_analyses_by_repository(
     db: Session,
     repository_id: Union[uuid.UUID, str],
+    user_id: Optional[Union[uuid.UUID, str]] = None,
     limit: int = 20
 ) -> List[AnalysisRun]:
     """
     Retrieves the historical analysis runs for a given repository ordered by creation date desc.
+    If user_id is supplied, verifies that the repository belongs to user_id.
     """
     if isinstance(repository_id, str):
         try:
             repository_id = uuid.UUID(repository_id)
         except ValueError:
             return []
+
+    if isinstance(user_id, str):
+        try:
+            user_id = uuid.UUID(user_id)
+        except ValueError:
+            return []
+
+    if user_id is not None:
+        from app.services.repository_persistence import get_repository_by_id
+        repo = get_repository_by_id(db, repository_id, user_id=user_id)
+        if not repo:
+            return []
+
     stmt = (
         select(AnalysisRun)
         .where(AnalysisRun.repository_id == repository_id)

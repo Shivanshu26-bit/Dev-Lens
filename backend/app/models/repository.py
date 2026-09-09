@@ -1,10 +1,14 @@
 import uuid
 from datetime import datetime
-from typing import Optional, List
-from sqlalchemy import String, Text, Integer, Boolean, DateTime, Index, Uuid, func
+from typing import Optional, List, TYPE_CHECKING
+from sqlalchemy import String, Text, Integer, Boolean, DateTime, Index, Uuid, ForeignKey, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+
+if TYPE_CHECKING:
+    from app.models.user import User
+    from app.models.analysis import AnalysisRun
 
 
 class Repository(Base):
@@ -20,9 +24,16 @@ class Repository(Base):
         doc="Primary UUID identifier for the repository"
     )
 
+    user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+        doc="Owner user UUID who analyzed or created this repository record"
+    )
+
     github_url: Mapped[str] = mapped_column(
         String(512),
-        unique=True,
         index=True,
         nullable=False,
         doc="Canonical GitHub URL of the repository"
@@ -111,6 +122,12 @@ class Repository(Base):
     )
 
     # Relationships
+    user: Mapped[Optional["User"]] = relationship(
+        "User",
+        back_populates="repositories",
+        doc="Owner user entity"
+    )
+
     analyses: Mapped[List["AnalysisRun"]] = relationship(
         "AnalysisRun",
         back_populates="repository",
@@ -121,6 +138,7 @@ class Repository(Base):
 
     __table_args__ = (
         Index("ix_repositories_owner_name", "owner", "name"),
+        Index("uq_repositories_user_id_github_url", "user_id", "github_url", unique=True),
     )
 
     def __repr__(self) -> str:
