@@ -1,3 +1,4 @@
+import hmac
 import logging
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
@@ -123,10 +124,10 @@ async def github_callback(
         )
 
     cookie_state = request.cookies.get("oauth_state")
-    if cookie_state and cookie_state != state:
+    if not cookie_state or not hmac.compare_digest(cookie_state, state):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="OAuth state mismatch (possible CSRF attempt)"
+            detail="OAuth state mismatch or missing state cookie (possible CSRF attempt)",
         )
 
     # 3. Exchange code for access token

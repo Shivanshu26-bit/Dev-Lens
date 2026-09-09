@@ -230,6 +230,12 @@ export default function App() {
 
   const handleRunAiReviewFromExisting = async () => {
     if (!repoUrl.trim()) return;
+
+    if (!currentUser) {
+      setErrorMsg("Please sign in with GitHub to analyze repositories.");
+      return;
+    }
+
     setIsSubmitting(true);
     setErrorMsg(null);
     setScanType('ai');
@@ -238,6 +244,7 @@ export default function App() {
     try {
       const response = await fetch(`${apiUrl}/api/repositories/analyze/ai`, {
         method: 'POST',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
         },

@@ -110,6 +110,20 @@ def test_oauth_state_cross_site_mismatch_rejected():
 
 
 @pytest.mark.skip_auth_mock
+def test_oauth_state_missing_cookie_rejected():
+    """
+    Verify that if the oauth_state cookie is missing entirely, the request is rejected with 400.
+    Prevents OAuth Login CSRF bypasses.
+    """
+    client.cookies.clear()
+    valid_state = create_oauth_state()
+
+    response = client.get(f"/api/auth/github/callback?code=mock_code&state={valid_state}")
+    assert response.status_code == 400
+    assert "OAuth state mismatch or missing state cookie" in response.json()["detail"]
+
+
+@pytest.mark.skip_auth_mock
 def test_session_cookie_flags_on_successful_login(db_session: Session):
     """
     Verify that the session cookie issued upon successful OAuth callback has HttpOnly,
@@ -179,3 +193,36 @@ def test_unauthenticated_protected_endpoints_return_401():
             resp = client.post(path, json={"url": "https://github.com/owner/repo"})
         assert resp.status_code == 401, f"Expected 401 for {method} {path}, got {resp.status_code}"
         assert "Not authenticated" in resp.json()["detail"]
+
+
+def test_production_secret_key_guardrail():
+    """
+    Verify that Pydantic rejects the default insecure SECRET_KEY when
+    SESSION_COOKIE_SECURE is True (production mode), but allows custom keys
+    or development mode.
+    """
+    from pydantic import ValidationError
+    from app.core.config import Settings
+
+    # 1. Production mode with default insecure key must fail validation
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(
+            SESSION_COOKIE_SECURE=True,
+            SECRET_KEY="devlens-insecure-secret-key-change-in-production-32b"
+        )
+    assert "Insecure default SECRET_KEY cannot be used in production" in str(exc_info.value)
+
+    # 2. Production mode with strong custom key must succeed
+    prod_settings = Settings(
+        SESSION_COOKIE_SECURE=True,
+        SECRET_KEY="a-very-strong-production-cryptographic-secret-key-12345"
+    )
+    assert prod_settings.SESSION_COOKIE_SECURE is True
+    assert prod_settings.SECRET_KEY == "a-very-strong-production-cryptographic-secret-key-12345"
+
+    # 3. Development mode (SESSION_COOKIE_SECURE=False) allows the default key
+    dev_settings = Settings(
+        SESSION_COOKIE_SECURE=False,
+        SECRET_KEY="devlens-insecure-secret-key-change-in-production-32b"
+    )
+    assert dev_settings.SESSION_COOKIE_SECURE is False

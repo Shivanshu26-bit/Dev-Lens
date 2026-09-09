@@ -1,6 +1,6 @@
 from typing import List, Union
 import json
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
@@ -72,6 +72,16 @@ class Settings(BaseSettings):
     MAX_CHARS_PER_FILE: int = 12000
     MAX_TOTAL_EVIDENCE_CHARS: int = 60000
     AI_REQUEST_TIMEOUT_SECONDS: float = 30.0
+
+    @model_validator(mode="after")
+    def validate_production_secret_key(self) -> "Settings":
+        insecure_default = "devlens-insecure-secret-key-change-in-production-32b"
+        if self.SESSION_COOKIE_SECURE and (self.SECRET_KEY == insecure_default or "devlens-insecure" in self.SECRET_KEY):
+            raise ValueError(
+                "Insecure default SECRET_KEY cannot be used in production when SESSION_COOKIE_SECURE is enabled. "
+                "Please configure a strong, unique SECRET_KEY."
+            )
+        return self
 
     model_config = SettingsConfigDict(
         env_file=".env",
