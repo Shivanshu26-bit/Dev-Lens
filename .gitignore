@@ -56,5 +56,6 @@ htmlcov/
 *.sw?
 .DS_Store
 
-# Docker logs
+# Docker logs & database
 *.log
+.pgdata/

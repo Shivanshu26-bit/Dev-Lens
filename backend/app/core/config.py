@@ -31,8 +31,22 @@ class Settings(BaseSettings):
             return [str(item) for item in v]
         raise ValueError(f"Invalid CORS origins format: {v}")
 
-    # Future integration placeholders (optional/empty defaults for Phase 1)
-    DATABASE_URL: str = ""
+    # Database Configuration (Phase 5A)
+    DATABASE_URL: str = "postgresql+psycopg://devlens:devlens@localhost:5432/devlens"
+    DB_ECHO: bool = False
+
+    @field_validator("DATABASE_URL", mode="before")
+    @classmethod
+    def assemble_db_url(cls, v: str) -> str:
+        if isinstance(v, str) and v.strip():
+            v_clean = v.strip()
+            if v_clean.startswith("postgresql://"):
+                return v_clean.replace("postgresql://", "postgresql+psycopg://", 1)
+            if v_clean.startswith("postgres://"):
+                return v_clean.replace("postgres://", "postgresql+psycopg://", 1)
+        return v
+    
+    # Credentials & API Keys
     GITHUB_TOKEN: str = ""
     GEMINI_API_KEY: str = ""
 

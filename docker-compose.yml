@@ -10,11 +10,12 @@ services:
     volumes:
       - ./backend:/app
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@db:5432/devlens
+      - DATABASE_URL=postgresql+psycopg://devlens:devlens@db:5432/devlens
       - GITHUB_TOKEN=${GITHUB_TOKEN}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
     depends_on:
-      - db
+      db:
+        condition: service_healthy
 
   frontend:
     build:
@@ -29,16 +30,21 @@ services:
       - VITE_API_URL=http://localhost:8000
 
   db:
-    image: postgres:15-alpine
-    container_name: devlens-db
+    image: postgres:16-alpine
+    container_name: devlens-postgres
     ports:
       - "5432:5432"
     environment:
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_USER=devlens
+      - POSTGRES_PASSWORD=devlens
       - POSTGRES_DB=devlens
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U devlens -d devlens"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
 volumes:
   postgres_data:
