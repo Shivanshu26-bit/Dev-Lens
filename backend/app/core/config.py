@@ -41,6 +41,13 @@ class Settings(BaseSettings):
     MAX_FILE_SIZE_BYTES: int = 200 * 1024  # 200 KB
     MAX_TOTAL_CONTENT_BYTES: int = 5 * 1024 * 1024  # 5 MB
 
+    # Phase 4 AI limits & configurations
+    GEMINI_MODEL: str = "gemini-3.6-flash"
+    MAX_EVIDENCE_FILES: int = 12
+    MAX_CHARS_PER_FILE: int = 12000
+    MAX_TOTAL_EVIDENCE_CHARS: int = 60000
+    AI_REQUEST_TIMEOUT_SECONDS: float = 30.0
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

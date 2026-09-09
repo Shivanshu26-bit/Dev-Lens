@@ -54,6 +54,7 @@ async def analyze_repository(
     # 2. Iterate eligible files and enforce limits
     analyzed_files_list = []
     findings = []
+    fetched_contents: Dict[str, str] = {}
     
     skipped_count = 0
     skip_reasons = {
@@ -131,6 +132,7 @@ async def analyze_repository(
         }
         
         analyzed_files_list.append(file_metric)
+        fetched_contents[path] = content
         
         # Accumulate metrics
         total_content_bytes += size_bytes
@@ -230,5 +232,6 @@ async def analyze_repository(
                 "type": item["type"]
             }
             for item in tree_items
-        ]
+        ],
+        "file_contents": fetched_contents
     }

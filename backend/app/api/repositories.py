@@ -10,6 +10,17 @@ from app.services.github_service import (
 )
 
 from app.analyzers.repository_analyzer import analyze_repository as run_repo_analysis
+from app.models.ai_models import AIAnalysisReport
+from app.analyzers.evidence_selector import EvidenceSelector
+from app.services.ai_service import (
+    AIService,
+    AIConfigError,
+    AIRateLimitError,
+    AITimeoutError,
+    AIResponseValidationError,
+    AIUnavailableError,
+    AIServiceError
+)
 
 router = APIRouter(prefix="/api/repositories", tags=["repositories"])
 
@@ -103,6 +114,12 @@ class AnalysisReport(BaseModel):
     findings: List[Finding]
     analysis_metadata: AnalysisMetadata
     tree: List[TreeItem]
+
+# Phase 4 AI Analysis Response Schema
+class AIAnalyzeResponse(BaseModel):
+    repository: RepositoryMetadata
+    deterministic_analysis: AnalysisReport
+    ai_analysis: AIAnalysisReport
 
 
 @router.post("/analyze", response_model=AnalyzeResponse)
@@ -209,5 +226,97 @@ async def analyze_repository_report(payload: AnalyzeRequest):
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=str(e)
+        )
+
+
+@router.post("/analyze/ai", response_model=AIAnalyzeResponse)
+async def analyze_repository_ai(payload: AnalyzeRequest):
+    """
+    Ingests a public GitHub repository, executes deterministic Phase 3 static analysis,
+    selects prioritized code evidence with secret redaction, and invokes the Gemini AI
+    intelligence layer to return a validated engineering assessment.
+    """
+    # 1. Parse and validate GitHub URL
+    try:
+        owner, repo = parse_github_url(payload.url)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+
+    # 2. Fetch repo tree and metadata from GitHub
+    github_service = GitHubService()
+    try:
+        metadata = await github_service.get_repo_metadata(owner, repo)
+        branch = metadata.get("default_branch", "main")
+        tree_items = await github_service.get_repo_tree(owner, repo, branch)
+
+        # 3. Run deterministic Phase 3 static analysis
+        deterministic_dict = await run_repo_analysis(owner, repo, metadata, tree_items)
+        cached_contents = deterministic_dict.get("file_contents", {})
+
+        # 4. Select and redact evidence for AI review
+        selector = EvidenceSelector()
+        evidence_bundle = await selector.select_evidence(
+            deterministic_report=deterministic_dict,
+            owner=owner,
+            repo=repo,
+            default_branch=branch,
+            github_service=github_service,
+            cached_file_contents=cached_contents
+        )
+
+        # 5. Invoke Gemini AI Service
+        ai_service = AIService()
+        ai_analysis = await ai_service.analyze_repository(evidence_bundle)
+
+        # 6. Format and return response
+        deterministic_report = AnalysisReport(**deterministic_dict)
+        return AIAnalyzeResponse(
+            repository=deterministic_report.repository,
+            deterministic_analysis=deterministic_report,
+            ai_analysis=ai_analysis
+        )
+
+    except GitHubNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
+    except GitHubRateLimitError as e:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=str(e)
+        )
+    except GitHubAPIError as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(e)
+        )
+    except AIConfigError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(e)
+        )
+    except AIRateLimitError as e:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=str(e)
+        )
+    except AITimeoutError as e:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail=str(e)
+        )
+    except AIResponseValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"AI assessment response validation failed: {str(e)}"
+        )
+    except (AIUnavailableError, AIServiceError):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="AI analysis is temporarily unavailable. Please try again."
         )
 

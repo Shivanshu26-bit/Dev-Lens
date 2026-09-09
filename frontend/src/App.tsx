@@ -16,9 +16,23 @@ import {
   AlertTriangle,
   Info,
   FileText,
-  BarChart3
+  BarChart3,
+  Sparkles,
+  Zap,
+  Check,
+  Layers,
+  Activity,
+  ArrowRight
 } from 'lucide-react';
-import type { AnalyzeResponse, AnalysisReport, Finding } from './types';
+import type { 
+  AnalyzeResponse, 
+  AnalysisReport, 
+  Finding, 
+  AIAnalysisReport, 
+  AIAnalyzeResponse,
+  AssessmentRating,
+  PriorityLevel
+} from './types';
 
 const GithubIcon = (props: React.SVGProps<SVGSVGElement>) => (
   <svg
@@ -37,29 +51,30 @@ const GithubIcon = (props: React.SVGProps<SVGSVGElement>) => (
   </svg>
 );
 
-interface HealthStatus {
-  status: string;
-  project: string;
-  features: {
-    database_integrated: boolean;
-    ai_analysis_integrated: boolean;
-  };
-}
 
-type TabType = 'overview' | 'metrics' | 'languages' | 'findings' | 'files';
+type TabType = 'overview' | 'metrics' | 'languages' | 'findings' | 'files' | 'ai-review';
+
+const AI_LOADING_STAGES = [
+  "Ingesting repository & calculating metrics",
+  "Reviewing architecture & module design",
+  "Evaluating application security posture",
+  "Assessing code maintainability & quality",
+  "Synthesizing actionable engineering priorities"
+];
 
 export default function App() {
   const [repoUrl, setRepoUrl] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [backendStatus, setBackendStatus] = useState<'checking' | 'connected' | 'disconnected'>('checking');
-  const [backendInfo, setBackendInfo] = useState<HealthStatus | null>(null);
   
-  // Phase 3 Ingestion & Scan Types state
-  const [scanType, setScanType] = useState<'quick' | 'deep'>('deep');
+  // Ingestion, Scan Types & AI state
+  const [scanType, setScanType] = useState<'quick' | 'deep' | 'ai'>('ai');
   const [quickData, setQuickData] = useState<AnalyzeResponse | null>(null);
   const [reportData, setReportData] = useState<AnalysisReport | null>(null);
+  const [aiData, setAiData] = useState<AIAnalysisReport | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabType>('overview');
+  const [aiStage, setAiStage] = useState(0);
   
   // Findings state filters
   const [severityFilter, setSeverityFilter] = useState<'all' | 'critical' | 'high' | 'medium' | 'low' | 'info'>('all');
@@ -71,9 +86,7 @@ export default function App() {
         const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
         const response = await fetch(`${apiUrl}/health`);
         if (response.ok) {
-          const data: HealthStatus = await response.json();
           setBackendStatus('connected');
-          setBackendInfo(data);
         } else {
           setBackendStatus('disconnected');
         }
@@ -85,6 +98,18 @@ export default function App() {
     checkBackendHealth();
   }, []);
 
+  // Cycle through AI loading stages while request is running
+  useEffect(() => {
+    let interval: any;
+    if (isSubmitting && scanType === 'ai') {
+      setAiStage(0);
+      interval = setInterval(() => {
+        setAiStage(prev => (prev + 1) % AI_LOADING_STAGES.length);
+      }, 2200);
+    }
+    return () => clearInterval(interval);
+  }, [isSubmitting, scanType]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!repoUrl.trim()) return;
@@ -93,12 +118,15 @@ export default function App() {
     setErrorMsg(null);
     setQuickData(null);
     setReportData(null);
-    setActiveTab('overview');
+    setAiData(null);
 
     const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-    const endpoint = scanType === 'deep' 
-      ? `${apiUrl}/api/repositories/analyze/report` 
-      : `${apiUrl}/api/repositories/analyze`;
+    let endpoint = `${apiUrl}/api/repositories/analyze`;
+    if (scanType === 'deep') {
+      endpoint = `${apiUrl}/api/repositories/analyze/report`;
+    } else if (scanType === 'ai') {
+      endpoint = `${apiUrl}/api/repositories/analyze/ai`;
+    }
 
     try {
       const response = await fetch(endpoint, {
@@ -116,14 +144,55 @@ export default function App() {
       }
 
       const payload = await response.json();
-      if (scanType === 'deep') {
+      if (scanType === 'ai') {
+        const aiResponse = payload as AIAnalyzeResponse;
+        setReportData(aiResponse.deterministic_analysis);
+        setAiData(aiResponse.ai_analysis);
+        setActiveTab('ai-review');
+      } else if (scanType === 'deep') {
         setReportData(payload as AnalysisReport);
+        setActiveTab('overview');
       } else {
         setQuickData(payload as AnalyzeResponse);
+        setActiveTab('overview');
       }
     } catch (err: any) {
-      console.error('Ingestion failed:', err);
+      console.error('Analysis failed:', err);
       setErrorMsg(err.message || 'An unexpected error occurred while communicating with the DevLens API.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleRunAiReviewFromExisting = async () => {
+    if (!repoUrl.trim()) return;
+    setIsSubmitting(true);
+    setErrorMsg(null);
+    setScanType('ai');
+
+    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+    try {
+      const response = await fetch(`${apiUrl}/api/repositories/analyze/ai`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ url: repoUrl }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        const detail = errorData.detail || `Request failed with status ${response.status}`;
+        throw new Error(detail);
+      }
+
+      const payload: AIAnalyzeResponse = await response.json();
+      setReportData(payload.deterministic_analysis);
+      setAiData(payload.ai_analysis);
+      setActiveTab('ai-review');
+    } catch (err: any) {
+      console.error('AI Review failed:', err);
+      setErrorMsg(err.message || 'AI Review could not be completed.');
     } finally {
       setIsSubmitting(false);
     }
@@ -175,6 +244,84 @@ export default function App() {
     }
   };
 
+  // Helper colors for AI ratings
+  const renderRatingBadge = (rating: AssessmentRating | string) => {
+    switch (rating) {
+      case 'excellent':
+        return (
+          <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-950/80 text-emerald-400 border border-emerald-800">
+            Excellent
+          </span>
+        );
+      case 'good':
+        return (
+          <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-950/80 text-blue-400 border border-blue-800">
+            Good
+          </span>
+        );
+      case 'fair':
+        return (
+          <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-950/80 text-amber-400 border border-amber-800">
+            Fair
+          </span>
+        );
+      case 'needs_attention':
+        return (
+          <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-orange-950/80 text-orange-400 border border-orange-800">
+            Needs Attention
+          </span>
+        );
+      case 'poor':
+        return (
+          <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-red-950/80 text-red-400 border border-red-800">
+            Poor
+          </span>
+        );
+      default:
+        return (
+          <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-zinc-800 text-zinc-400 border border-zinc-700">
+            {rating}
+          </span>
+        );
+    }
+  };
+
+  // Helper colors for AI priority badges
+  const renderPriorityBadge = (priority: PriorityLevel | string) => {
+    switch (priority) {
+      case 'critical':
+        return (
+          <span className="px-2.5 py-1 rounded-md text-xs font-extrabold bg-red-950/90 text-red-400 border border-red-700 tracking-wider">
+            CRITICAL
+          </span>
+        );
+      case 'high':
+        return (
+          <span className="px-2.5 py-1 rounded-md text-xs font-extrabold bg-orange-950/90 text-orange-400 border border-orange-700 tracking-wider">
+            HIGH
+          </span>
+        );
+      case 'medium':
+        return (
+          <span className="px-2.5 py-1 rounded-md text-xs font-extrabold bg-amber-950/90 text-amber-400 border border-amber-700 tracking-wider">
+            MEDIUM
+          </span>
+        );
+      case 'low':
+        return (
+          <span className="px-2.5 py-1 rounded-md text-xs font-extrabold bg-blue-950/90 text-blue-400 border border-blue-700 tracking-wider">
+            LOW
+          </span>
+        );
+      default:
+        return (
+          <span className="px-2.5 py-1 rounded-md text-xs font-extrabold bg-zinc-800 text-zinc-300 border border-zinc-700">
+            {priority.toUpperCase()}
+          </span>
+        );
+    }
+  };
+
   const repository = getActiveRepository();
 
   return (
@@ -185,63 +332,57 @@ export default function App() {
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           {/* Logo */}
           <div className="flex items-center space-x-3">
-            <div className="bg-gradient-to-tr from-violet-600 to-indigo-600 p-2.5 rounded-xl shadow-lg shadow-indigo-900/30">
+            <div className="bg-gradient-to-tr from-violet-600 via-indigo-600 to-purple-500 p-2.5 rounded-xl shadow-lg shadow-indigo-900/30">
               <Terminal className="w-6 h-6 text-white" />
             </div>
             <div>
               <span className="text-xl font-bold tracking-tight bg-gradient-to-r from-white via-zinc-200 to-zinc-400 bg-clip-text text-transparent">
                 DevLens
               </span>
-              <span className="ml-2 text-xs font-semibold px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400 border border-zinc-700">
-                v0.3.0-alpha
+              <span className="ml-2 text-xs font-semibold px-2 py-0.5 rounded-full bg-violet-950/70 text-violet-300 border border-violet-800/80">
+                Phase 4 • Gemini AI
               </span>
             </div>
           </div>
 
-          {/* Navigation */}
-          <nav className="hidden md:flex space-x-1">
-            <a href="#dashboard" className="px-4 py-2 rounded-lg text-sm font-medium bg-zinc-800 text-white border border-zinc-700">
-              Dashboard
-            </a>
-            <a href="#docs" className="px-4 py-2 rounded-lg text-sm font-medium text-zinc-400 hover:text-white hover:bg-zinc-800/50 transition duration-200">
-              Docs
-            </a>
-            <a href="https://github.com" target="_blank" rel="noreferrer" className="px-4 py-2 rounded-lg text-sm font-medium text-zinc-400 hover:text-white hover:bg-zinc-800/50 transition duration-200 flex items-center gap-1.5">
-              GitHub <ExternalLink className="w-3.5 h-3.5" />
-            </a>
-          </nav>
-
-          {/* Connection Status */}
-          <div className="flex items-center space-x-4">
-            <div className="flex items-center space-x-2">
-              <span className="relative flex h-2 w-2">
-                <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
-                  backendStatus === 'connected' ? 'bg-emerald-400' : backendStatus === 'disconnected' ? 'bg-red-400' : 'bg-amber-400'
-                }`}></span>
-                <span className={`relative inline-flex rounded-full h-2 w-2 ${
-                  backendStatus === 'connected' ? 'bg-emerald-500' : backendStatus === 'disconnected' ? 'bg-red-500' : 'bg-amber-500'
-                }`}></span>
-              </span>
-              <span className="text-xs text-zinc-400 font-medium">
-                {backendStatus === 'checking' && 'API Checking...'}
-                {backendStatus === 'connected' && `API Online (${backendInfo?.project || 'DevLens'})`}
-                {backendStatus === 'disconnected' && 'API Offline'}
-              </span>
-            </div>
+          {/* Health status indicator */}
+          <div className="flex items-center space-x-3 text-xs">
+            {backendStatus === 'checking' && (
+              <div className="flex items-center space-x-2 text-zinc-400">
+                <div className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
+                <span>Connecting...</span>
+              </div>
+            )}
+            {backendStatus === 'connected' && (
+              <div className="flex items-center space-x-2 text-emerald-400 bg-emerald-950/30 border border-emerald-900 px-3 py-1.5 rounded-full">
+                <div className="w-2 h-2 rounded-full bg-emerald-500" />
+                <span>Connected</span>
+              </div>
+            )}
+            {backendStatus === 'disconnected' && (
+              <div className="flex items-center space-x-2 text-rose-400 bg-rose-950/30 border border-rose-900 px-3 py-1.5 rounded-full">
+                <div className="w-2 h-2 rounded-full bg-rose-500" />
+                <span>Offline</span>
+              </div>
+            )}
           </div>
         </div>
       </header>
 
-      {/* Main Content */}
-      <main className="max-w-7xl w-full mx-auto px-6 py-8 flex-grow space-y-10">
+      {/* Main Container */}
+      <main className="flex-grow max-w-7xl w-full mx-auto px-6 py-10 space-y-10">
         
-        {/* Banner Section */}
-        <section className="text-center space-y-4 max-w-3xl mx-auto py-2">
+        {/* Hero Section */}
+        <section className="text-center space-y-3 max-w-3xl mx-auto">
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-violet-950/60 text-violet-300 border border-violet-800/80 mb-2">
+            <Sparkles className="w-3.5 h-3.5 text-violet-400" />
+            AI Intelligence Layer + Deterministic Code Analysis
+          </div>
           <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight bg-gradient-to-b from-white via-zinc-100 to-zinc-400 bg-clip-text text-transparent">
-            Deterministic Analysis Engine
+            AI-Powered Engineering Reviewer
           </h1>
           <p className="text-zinc-400 text-base leading-relaxed">
-            Ingest repositories to inspect structure, calculate precise code metrics, and scan for potential quality concerns or hardcoded secrets.
+            Ingest GitHub repositories for precise static metrics, security vulnerability scans, and deep architectural assessments generated by Google Gemini.
           </p>
         </section>
 
@@ -255,22 +396,23 @@ export default function App() {
                   Analyze Codebase
                 </h2>
                 <p className="text-zinc-400 text-xs mt-0.5">
-                  Analyze public repositories. (Phase 3 runs local metrics and credential checks).
+                  Select your analysis depth and enter any public repository URL.
                 </p>
               </div>
               
               {/* Scan Type selector */}
-              <div className="bg-zinc-950 p-1 rounded-xl border border-zinc-800 flex items-center space-x-1 text-xs self-start sm:self-center">
+              <div className="bg-zinc-950 p-1 rounded-xl border border-zinc-800 flex items-center space-x-1 text-xs self-start sm:self-center flex-wrap gap-1">
                 <button
                   type="button"
-                  onClick={() => setScanType('quick')}
-                  className={`px-3 py-1.5 rounded-lg font-medium transition cursor-pointer ${
-                    scanType === 'quick' 
-                      ? 'bg-zinc-800 text-white border border-zinc-700' 
-                      : 'text-zinc-500 hover:text-zinc-300'
+                  onClick={() => setScanType('ai')}
+                  className={`px-3 py-1.5 rounded-lg font-medium transition cursor-pointer flex items-center gap-1.5 ${
+                    scanType === 'ai' 
+                      ? 'bg-gradient-to-r from-violet-600 to-indigo-600 text-white shadow-md shadow-indigo-900/40' 
+                      : 'text-zinc-400 hover:text-zinc-200'
                   }`}
                 >
-                  Quick Ingestion (Phase 2)
+                  <Sparkles className="w-3.5 h-3.5 text-violet-300" />
+                  AI Review (Phase 4)
                 </button>
                 <button
                   type="button"
@@ -281,7 +423,18 @@ export default function App() {
                       : 'text-zinc-500 hover:text-zinc-300'
                   }`}
                 >
-                  Deep Analysis Report (Phase 3)
+                  Deep Static (Phase 3)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setScanType('quick')}
+                  className={`px-3 py-1.5 rounded-lg font-medium transition cursor-pointer ${
+                    scanType === 'quick' 
+                      ? 'bg-zinc-800 text-white border border-zinc-700' 
+                      : 'text-zinc-500 hover:text-zinc-300'
+                  }`}
+                >
+                  Quick Ingestion (Phase 2)
                 </button>
               </div>
             </div>
@@ -303,7 +456,7 @@ export default function App() {
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="px-6 py-3 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 disabled:from-zinc-800 disabled:to-zinc-800 disabled:text-zinc-500 text-white font-semibold rounded-xl text-sm transition duration-200 flex items-center justify-center gap-2 shadow-lg shadow-indigo-900/20 active:scale-98 cursor-pointer"
+                className="px-6 py-3 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 disabled:from-zinc-800 disabled:to-zinc-800 disabled:text-zinc-500 text-white font-semibold rounded-xl text-sm transition duration-200 flex items-center justify-center gap-2 shadow-lg shadow-indigo-900/20 active:scale-98 cursor-pointer whitespace-nowrap"
               >
                 {isSubmitting ? (
                   <>
@@ -311,11 +464,12 @@ export default function App() {
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                     </svg>
-                    {scanType === 'deep' ? 'Analyzing Code...' : 'Ingesting Repository...'}
+                    Analyzing...
                   </>
                 ) : (
                   <>
-                    {scanType === 'deep' ? 'Run Code Analysis' : 'Ingest Tree'}
+                    {scanType === 'ai' && <Sparkles className="w-4 h-4 text-violet-200" />}
+                    {scanType === 'ai' ? 'Run AI Review' : scanType === 'deep' ? 'Run Code Analysis' : 'Ingest Tree'}
                   </>
                 )}
               </button>
@@ -323,40 +477,47 @@ export default function App() {
           </div>
         </section>
 
-        {/* Dashboard Content states */}
-        
-        {/* Loading Spinner */}
-        {isSubmitting && (
-          <section className="space-y-6 max-w-5xl mx-auto animate-pulse">
-            <div className="h-6 w-52 bg-zinc-800 rounded"></div>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              {[1, 2, 3, 4].map((i) => (
-                <div key={i} className="h-28 bg-zinc-900/50 border border-zinc-800 rounded-xl"></div>
+        {/* AI Loading Experience */}
+        {isSubmitting && scanType === 'ai' && (
+          <section className="max-w-2xl mx-auto bg-zinc-900/40 border border-indigo-900/40 rounded-2xl p-8 text-center space-y-5 animate-fade-in shadow-xl">
+            <div className="w-14 h-14 mx-auto rounded-2xl bg-gradient-to-tr from-violet-600 to-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-900/40 animate-pulse">
+              <Sparkles className="w-7 h-7 text-white" />
+            </div>
+            <div className="space-y-1.5">
+              <h3 className="text-xl font-bold text-white">Analyzing repository with DevLens AI...</h3>
+              <p className="text-sm text-indigo-400 font-medium transition-all duration-300">
+                {AI_LOADING_STAGES[aiStage]}...
+              </p>
+              <p className="text-xs text-zinc-500">
+                Unified analysis synthesizing deterministic metrics and curated source evidence.
+              </p>
+            </div>
+            <div className="flex justify-center gap-2 max-w-xs mx-auto pt-2">
+              {AI_LOADING_STAGES.map((_, idx) => (
+                <div
+                  key={idx}
+                  className={`h-1.5 rounded-full transition-all duration-300 ${
+                    idx === aiStage ? 'w-8 bg-indigo-500' : idx < aiStage ? 'w-4 bg-indigo-800/60' : 'w-4 bg-zinc-800'
+                  }`}
+                />
               ))}
             </div>
-            <div className="h-64 bg-zinc-900/50 border border-zinc-800 rounded-xl"></div>
           </section>
         )}
 
-        {/* Error State */}
-        {errorMsg && !isSubmitting && (
-          <section className="max-w-2xl mx-auto bg-red-950/20 border border-red-800/80 rounded-2xl p-6 flex items-start space-x-4 animate-fade-in shadow-lg">
-            <AlertCircle className="w-6 h-6 text-red-500 flex-shrink-0 mt-0.5" />
-            <div className="space-y-2">
-              <h3 className="text-lg font-bold text-red-400">Analysis Execution Error</h3>
-              <p className="text-zinc-400 text-sm leading-relaxed">{errorMsg}</p>
-              <button 
-                onClick={() => setErrorMsg(null)}
-                className="mt-2 text-xs font-semibold text-zinc-300 hover:text-white px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-lg transition"
-              >
-                Dismiss Error
-              </button>
+        {/* Error notification banner */}
+        {errorMsg && (
+          <div className="bg-red-950/30 border border-red-900/80 rounded-2xl p-5 text-red-300 text-sm flex items-start space-x-3.5 max-w-4xl mx-auto">
+            <AlertCircle className="w-5 h-5 flex-shrink-0 text-red-400 mt-0.5" />
+            <div className="space-y-1">
+              <p className="font-semibold text-red-200">Analysis Request Failed</p>
+              <p className="text-xs text-red-300/90 leading-relaxed">{errorMsg}</p>
             </div>
-          </section>
+          </div>
         )}
 
-        {/* Success States */}
-        {repository && !isSubmitting && !errorMsg && (
+        {/* Results Container */}
+        {repository && !isSubmitting && (
           <section className="space-y-8 max-w-7xl mx-auto animate-fade-in">
             {/* Header info */}
             <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-zinc-800 pb-4 gap-4">
@@ -377,7 +538,20 @@ export default function App() {
                 </p>
               </div>
               
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-3">
+                {aiData && (
+                  <span className="text-xs text-violet-300 font-semibold px-3 py-1.5 rounded-full bg-violet-950/50 border border-violet-800/80 flex items-center gap-1.5 shadow-sm">
+                    <Sparkles className="w-3.5 h-3.5 text-violet-400" /> AI Review Ready
+                  </span>
+                )}
+                {reportData && !aiData && (
+                  <button
+                    onClick={handleRunAiReviewFromExisting}
+                    className="text-xs text-white font-medium px-3.5 py-1.5 rounded-full bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 border border-violet-500/50 flex items-center gap-1.5 transition cursor-pointer shadow-md shadow-indigo-900/20"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-violet-200" /> Run AI Review
+                  </button>
+                )}
                 <span className="text-xs text-indigo-400 font-semibold px-3 py-1.5 rounded-full bg-indigo-950/30 border border-indigo-800/50 flex items-center gap-1.5">
                   <CheckCircle2 className="w-3.5 h-3.5" /> {reportData ? 'Deep Analysis Complete' : 'Quick Scan Complete'}
                 </span>
@@ -407,7 +581,6 @@ export default function App() {
 
                 {/* Tree and Details */}
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                  {/* Metadata */}
                   <div className="bg-zinc-900/30 border border-zinc-800 rounded-2xl p-6 space-y-4">
                     <h4 className="font-bold text-zinc-200 text-sm border-b border-zinc-800 pb-2">Description</h4>
                     <p className="text-xs text-zinc-300 leading-relaxed">
@@ -419,7 +592,6 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* Tree */}
                   <div className="lg:col-span-2 bg-zinc-900/30 border border-zinc-800 rounded-2xl p-6 flex flex-col h-[400px]">
                     <h4 className="font-bold text-zinc-200 text-sm border-b border-zinc-800 pb-2 flex items-center gap-2">
                       <Folder className="w-4 h-4 text-indigo-400" /> File Tree
@@ -441,33 +613,27 @@ export default function App() {
               </div>
             )}
 
-            {/* Deep Analysis Visuals (Phase 3) */}
+            {/* Deep Analysis & AI Visuals (Phase 3 & 4) */}
             {reportData && (
               <div className="space-y-6">
                 
                 {/* Skip Notification Alerts */}
                 {reportData.summary.skipped_files > 0 && (
                   <div className="bg-amber-950/20 border border-amber-900/80 rounded-2xl p-5 flex items-start space-x-3.5">
-                    <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5 animate-pulse" />
-                    <div className="space-y-1 text-xs">
-                      <h5 className="font-bold text-amber-400">Analysis Limits Info</h5>
-                      <p className="text-zinc-400 leading-relaxed">
-                        Some codebase files were skipped due to scanner limits: Capped files count (max 100), file size threshold (max 200KB), or binary formats.
+                    <AlertTriangle className="w-5 h-5 flex-shrink-0 text-amber-400 mt-0.5" />
+                    <div className="space-y-1 text-xs text-amber-300">
+                      <p className="font-bold text-amber-200 text-sm">Large Repository Notice</p>
+                      <p className="leading-relaxed">
+                        DevLens scanned {reportData.summary.analyzed_files} source files and skipped {reportData.summary.skipped_files} files exceeding size or quantity thresholds to guarantee predictable latency.
                       </p>
-                      <div className="flex items-center gap-4 mt-2 font-semibold text-zinc-500">
-                        <span>Too Large: {reportData.analysis_metadata.skip_reasons.too_large}</span>
-                        <span>•</span>
-                        <span>Unsupported/Binary: {reportData.analysis_metadata.skip_reasons.unsupported}</span>
-                        <span>•</span>
-                        <span>Limit Exceeded: {reportData.analysis_metadata.skip_reasons.limit_exceeded}</span>
-                      </div>
                     </div>
                   </div>
                 )}
 
-                {/* Tab selectors */}
-                <div className="flex border-b border-zinc-800 overflow-x-auto text-sm">
+                {/* Navigation Tabs */}
+                <div className="border-b border-zinc-800 flex space-x-2 overflow-x-auto custom-scrollbar">
                   {[
+                    ...(aiData ? [{ id: 'ai-review', label: 'AI Review', icon: Sparkles, badge: 'Gemini' }] : [{ id: 'ai-review', label: 'AI Review', icon: Sparkles, badge: 'Run' }]),
                     { id: 'overview', label: 'Overview', icon: Gauge },
                     { id: 'metrics', label: 'Metrics', icon: FileText },
                     { id: 'languages', label: 'Languages', icon: BarChart3 },
@@ -479,12 +645,17 @@ export default function App() {
                       onClick={() => setActiveTab(tab.id as TabType)}
                       className={`px-5 py-3 border-b-2 font-medium flex items-center gap-2 transition whitespace-nowrap cursor-pointer ${
                         activeTab === tab.id 
-                          ? 'border-indigo-500 text-white' 
+                          ? tab.id === 'ai-review' ? 'border-violet-500 text-white font-semibold' : 'border-indigo-500 text-white' 
                           : 'border-transparent text-zinc-500 hover:text-zinc-300'
                       }`}
                     >
-                      <tab.icon className="w-4 h-4" />
+                      <tab.icon className={`w-4 h-4 ${tab.id === 'ai-review' ? 'text-violet-400' : ''}`} />
                       {tab.label}
+                      {tab.badge && (
+                        <span className="text-xxs font-bold px-1.5 py-0.5 rounded-full bg-violet-950 text-violet-300 border border-violet-800">
+                          {tab.badge}
+                        </span>
+                      )}
                       {tab.count !== undefined && (
                         <span className={`text-xxs font-bold px-1.5 py-0.5 rounded-full ${
                           tab.count > 0 ? 'bg-indigo-950 text-indigo-400 border border-indigo-800' : 'bg-zinc-800 text-zinc-600'
@@ -497,6 +668,327 @@ export default function App() {
                 </div>
 
                 {/* Tab Panels */}
+                
+                {/* 0. AI Review Tab (Phase 4) */}
+                {activeTab === 'ai-review' && (
+                  <div className="space-y-8 animate-fade-in">
+                    {aiData ? (
+                      <>
+                        {/* Executive Summary & Confidence */}
+                        <div className="relative overflow-hidden bg-gradient-to-br from-violet-950/30 via-zinc-900/60 to-zinc-900/30 border border-violet-900/50 rounded-2xl p-6 md:p-8 space-y-4 shadow-xl">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800/80 pb-4">
+                            <div className="flex items-center gap-2.5">
+                              <div className="p-2 rounded-xl bg-violet-600/20 border border-violet-500/30">
+                                <Sparkles className="w-5 h-5 text-violet-400" />
+                              </div>
+                              <div>
+                                <h4 className="font-bold text-white text-base">Executive Engineering Summary</h4>
+                                <p className="text-xs text-zinc-400">Synthesized by DevLens AI based on deterministic findings and codebase architecture.</p>
+                              </div>
+                            </div>
+                            
+                            {/* Confidence badge */}
+                            <div>
+                              {aiData.confidence === 'high' && (
+                                <span className="px-3 py-1 rounded-full text-xs font-semibold bg-emerald-950/70 text-emerald-400 border border-emerald-800/80 flex items-center gap-1.5">
+                                  <CheckCircle2 className="w-3.5 h-3.5" /> High Confidence
+                                </span>
+                              )}
+                              {aiData.confidence === 'medium' && (
+                                <span className="px-3 py-1 rounded-full text-xs font-semibold bg-amber-950/70 text-amber-400 border border-amber-800/80 flex items-center gap-1.5">
+                                  <AlertTriangle className="w-3.5 h-3.5" /> Medium Confidence
+                                </span>
+                              )}
+                              {aiData.confidence === 'low' && (
+                                <span className="px-3 py-1 rounded-full text-xs font-semibold bg-red-950/70 text-red-400 border border-red-800/80 flex items-center gap-1.5">
+                                  <AlertCircle className="w-3.5 h-3.5" /> Low Confidence
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          <p className="text-zinc-200 text-sm md:text-base leading-relaxed">
+                            {aiData.executive_summary}
+                          </p>
+
+                          {aiData.confidence_reason && (
+                            <div className="text-xs text-amber-400/90 bg-amber-950/20 border border-amber-900/50 p-2.5 rounded-lg flex items-center gap-2">
+                              <Info className="w-4 h-4 flex-shrink-0" />
+                              <span>Confidence note: {aiData.confidence_reason}</span>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Top 2 Core Pillars: Architecture & Security */}
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                          
+                          {/* Architecture Card */}
+                          <div className="bg-zinc-900/40 border border-zinc-800 rounded-2xl p-6 space-y-4">
+                            <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+                              <div className="flex items-center gap-2">
+                                <Layers className="w-5 h-5 text-indigo-400" />
+                                <h4 className="font-bold text-white text-sm">Architecture & Design</h4>
+                              </div>
+                              {renderRatingBadge(aiData.architecture.rating)}
+                            </div>
+
+                            <p className="text-xs text-zinc-300 leading-relaxed">
+                              {aiData.architecture.assessment}
+                            </p>
+
+                            {aiData.architecture.strengths.length > 0 && (
+                              <div className="space-y-1.5 pt-2">
+                                <span className="text-xxs font-bold uppercase tracking-wider text-emerald-400">Strengths</span>
+                                <ul className="space-y-1 text-xs text-zinc-300">
+                                  {aiData.architecture.strengths.map((str, idx) => (
+                                    <li key={idx} className="flex items-start gap-2">
+                                      <Check className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0 mt-0.5" />
+                                      <span>{str}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+
+                            {aiData.architecture.weaknesses.length > 0 && (
+                              <div className="space-y-1.5 pt-2">
+                                <span className="text-xxs font-bold uppercase tracking-wider text-amber-400">Architectural Gaps</span>
+                                <ul className="space-y-1 text-xs text-zinc-300">
+                                  {aiData.architecture.weaknesses.map((weak, idx) => (
+                                    <li key={idx} className="flex items-start gap-2">
+                                      <AlertTriangle className="w-3.5 h-3.5 text-amber-400 flex-shrink-0 mt-0.5" />
+                                      <span>{weak}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Security Card */}
+                          <div className="bg-zinc-900/40 border border-zinc-800 rounded-2xl p-6 space-y-4">
+                            <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+                              <div className="flex items-center gap-2">
+                                <Shield className="w-5 h-5 text-violet-400" />
+                                <h4 className="font-bold text-white text-sm">Security Posture</h4>
+                              </div>
+                              {renderRatingBadge(aiData.security.rating)}
+                            </div>
+
+                            <p className="text-xs text-zinc-300 leading-relaxed">
+                              {aiData.security.assessment}
+                            </p>
+
+                            {aiData.security.important_issues.length > 0 && (
+                              <div className="space-y-1.5 pt-2">
+                                <span className="text-xxs font-bold uppercase tracking-wider text-red-400">Important Concerns</span>
+                                <ul className="space-y-1 text-xs text-red-300">
+                                  {aiData.security.important_issues.map((iss, idx) => (
+                                    <li key={idx} className="flex items-start gap-2">
+                                      <AlertCircle className="w-3.5 h-3.5 text-red-400 flex-shrink-0 mt-0.5" />
+                                      <span>{iss}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+
+                            {aiData.security.recommendations.length > 0 && (
+                              <div className="space-y-1.5 pt-2">
+                                <span className="text-xxs font-bold uppercase tracking-wider text-indigo-400">Hardening Steps</span>
+                                <ul className="space-y-1 text-xs text-zinc-300">
+                                  {aiData.security.recommendations.map((rec, idx) => (
+                                    <li key={idx} className="flex items-start gap-2">
+                                      <ArrowRight className="w-3.5 h-3.5 text-indigo-400 flex-shrink-0 mt-0.5" />
+                                      <span>{rec}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Secondary Pillars: Performance, Maintainability, Documentation */}
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                          
+                          {/* Performance */}
+                          <div className="bg-zinc-900/40 border border-zinc-800 rounded-2xl p-5 space-y-3">
+                            <div className="flex items-center justify-between border-b border-zinc-800 pb-2.5">
+                              <div className="flex items-center gap-2">
+                                <Zap className="w-4 h-4 text-amber-400" />
+                                <h4 className="font-bold text-white text-xs">Performance</h4>
+                              </div>
+                              {renderRatingBadge(aiData.performance.rating)}
+                            </div>
+                            <p className="text-xs text-zinc-300 leading-relaxed">
+                              {aiData.performance.assessment}
+                            </p>
+                            {aiData.performance.recommendations.length > 0 && (
+                              <ul className="text-xxs text-zinc-400 space-y-1 pt-1">
+                                {aiData.performance.recommendations.map((r, i) => (
+                                  <li key={i} className="flex items-start gap-1.5">
+                                    <span className="text-amber-400 font-bold">•</span>
+                                    <span>{r}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+
+                          {/* Maintainability */}
+                          <div className="bg-zinc-900/40 border border-zinc-800 rounded-2xl p-5 space-y-3">
+                            <div className="flex items-center justify-between border-b border-zinc-800 pb-2.5">
+                              <div className="flex items-center gap-2">
+                                <Activity className="w-4 h-4 text-emerald-400" />
+                                <h4 className="font-bold text-white text-xs">Maintainability</h4>
+                              </div>
+                              {renderRatingBadge(aiData.maintainability.rating)}
+                            </div>
+                            <p className="text-xs text-zinc-300 leading-relaxed">
+                              {aiData.maintainability.assessment}
+                            </p>
+                            {aiData.maintainability.recommendations.length > 0 && (
+                              <ul className="text-xxs text-zinc-400 space-y-1 pt-1">
+                                {aiData.maintainability.recommendations.map((r, i) => (
+                                  <li key={i} className="flex items-start gap-1.5">
+                                    <span className="text-emerald-400 font-bold">•</span>
+                                    <span>{r}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+
+                          {/* Documentation */}
+                          <div className="bg-zinc-900/40 border border-zinc-800 rounded-2xl p-5 space-y-3">
+                            <div className="flex items-center justify-between border-b border-zinc-800 pb-2.5">
+                              <div className="flex items-center gap-2">
+                                <FileText className="w-4 h-4 text-blue-400" />
+                                <h4 className="font-bold text-white text-xs">Documentation</h4>
+                              </div>
+                              {renderRatingBadge(aiData.documentation.rating)}
+                            </div>
+                            <p className="text-xs text-zinc-300 leading-relaxed">
+                              {aiData.documentation.assessment}
+                            </p>
+                            {aiData.documentation.recommendations.length > 0 && (
+                              <ul className="text-xxs text-zinc-400 space-y-1 pt-1">
+                                {aiData.documentation.recommendations.map((r, i) => (
+                                  <li key={i} className="flex items-start gap-1.5">
+                                    <span className="text-blue-400 font-bold">•</span>
+                                    <span>{r}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Positive Engineering Strengths */}
+                        {aiData.strengths.length > 0 && (
+                          <div className="bg-zinc-900/40 border border-zinc-800 rounded-2xl p-6 space-y-3">
+                            <h4 className="font-bold text-zinc-200 text-sm flex items-center gap-2">
+                              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                              Key Engineering Strengths Observed
+                            </h4>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 pt-1">
+                              {aiData.strengths.map((str, idx) => (
+                                <div key={idx} className="bg-zinc-950/70 border border-zinc-800/80 rounded-xl p-3 flex items-start gap-2.5 text-xs text-zinc-300">
+                                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 mt-1.5 flex-shrink-0" />
+                                  <span>{str}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Prioritized Engineering Improvements */}
+                        {aiData.priorities.length > 0 && (
+                          <div className="space-y-4">
+                            <div className="flex items-center justify-between">
+                              <h4 className="font-bold text-white text-base flex items-center gap-2">
+                                <Zap className="w-5 h-5 text-amber-400" />
+                                Prioritized Engineering Recommendations
+                              </h4>
+                              <span className="text-xs text-zinc-500 font-mono">
+                                Ordered by impact & urgency
+                              </span>
+                            </div>
+
+                            <div className="space-y-4">
+                              {aiData.priorities.map((item, idx) => (
+                                <div 
+                                  key={idx} 
+                                  className={`rounded-2xl p-6 border transition-all ${
+                                    item.priority === 'critical' 
+                                      ? 'bg-red-950/15 border-red-900/70 shadow-lg shadow-red-950/20' 
+                                      : item.priority === 'high'
+                                      ? 'bg-orange-950/15 border-orange-900/70 shadow-lg shadow-orange-950/20'
+                                      : item.priority === 'medium'
+                                      ? 'bg-amber-950/15 border-amber-900/60'
+                                      : 'bg-zinc-900/40 border-zinc-800'
+                                  }`}
+                                >
+                                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800/80 pb-3">
+                                    <div className="flex items-center gap-2.5 flex-wrap">
+                                      {renderPriorityBadge(item.priority)}
+                                      <span className="text-xs font-semibold px-2.5 py-0.5 rounded-md bg-zinc-800 text-zinc-300 border border-zinc-700">
+                                        {item.category}
+                                      </span>
+                                      <h5 className="font-bold text-zinc-100 text-sm md:text-base">
+                                        {item.title}
+                                      </h5>
+                                    </div>
+                                  </div>
+
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 text-xs">
+                                    <div className="space-y-1">
+                                      <span className="text-xxs font-bold text-zinc-500 uppercase tracking-wider">Why It Matters</span>
+                                      <p className="text-zinc-300 leading-relaxed">{item.explanation}</p>
+                                    </div>
+                                    <div className="space-y-1">
+                                      <span className="text-xxs font-bold text-indigo-400 uppercase tracking-wider">Recommended Action</span>
+                                      <p className="text-zinc-200 leading-relaxed font-medium">{item.recommendation}</p>
+                                    </div>
+                                  </div>
+
+                                  {item.evidence && (
+                                    <div className="mt-4 pt-3 border-t border-zinc-800/60 flex items-center gap-2 text-xxs text-zinc-400 font-mono">
+                                      <Code className="w-3.5 h-3.5 text-zinc-500 flex-shrink-0" />
+                                      <span className="text-zinc-500">Evidence:</span>
+                                      <span className="text-zinc-300 truncate">{item.evidence}</span>
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      /* CTA if user ran deep scan first without AI */
+                      <div className="bg-gradient-to-br from-violet-950/20 via-zinc-900/40 to-zinc-900/20 border border-violet-900/40 rounded-2xl p-8 text-center space-y-5 max-w-xl mx-auto my-8">
+                        <div className="w-12 h-12 mx-auto rounded-2xl bg-violet-600/20 border border-violet-500/30 flex items-center justify-center">
+                          <Sparkles className="w-6 h-6 text-violet-400" />
+                        </div>
+                        <div className="space-y-2">
+                          <h4 className="text-lg font-bold text-white">Generate Gemini AI Engineering Review</h4>
+                          <p className="text-xs text-zinc-400 leading-relaxed max-w-md mx-auto">
+                            Transform static repository metrics and security findings into an actionable, senior-level architectural critique with prioritized engineering recommendations.
+                          </p>
+                        </div>
+                        <button
+                          onClick={handleRunAiReviewFromExisting}
+                          disabled={isSubmitting}
+                          className="px-6 py-2.5 rounded-xl font-semibold text-xs text-white bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 transition shadow-lg shadow-indigo-900/30 cursor-pointer"
+                        >
+                          {isSubmitting ? 'Analyzing...' : 'Run Gemini Review Now'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
                 
                 {/* 1. Overview Tab */}
                 {activeTab === 'overview' && (
@@ -531,133 +1023,84 @@ export default function App() {
                       <p className="text-xs text-zinc-300 leading-relaxed">
                         {repository.description || 'No description provided.'}
                       </p>
-                      
-                      <div className="space-y-4 pt-4 border-t border-zinc-800 text-xs">
-                        <div className="flex justify-between">
-                          <span className="text-zinc-500">Stars:</span>
-                          <span className="font-bold text-zinc-300">{repository.stars.toLocaleString()}</span>
+
+                      <h4 className="font-bold text-zinc-200 text-sm border-b border-zinc-800 pb-2">LOC Metrics</h4>
+                      <div className="space-y-3 text-xs">
+                        <div className="flex justify-between items-center py-1 border-b border-zinc-800/40">
+                          <span className="text-zinc-500">Total Lines:</span>
+                          <span className="font-bold text-zinc-200 font-mono">{reportData.metrics.total_lines.toLocaleString()}</span>
                         </div>
-                        <div className="flex justify-between">
-                          <span className="text-zinc-500">Forks:</span>
-                          <span className="font-bold text-zinc-300">{repository.forks.toLocaleString()}</span>
+                        <div className="flex justify-between items-center py-1 border-b border-zinc-800/40">
+                          <span className="text-zinc-500">Source Code Lines:</span>
+                          <span className="font-bold text-indigo-400 font-mono">{reportData.metrics.code_lines.toLocaleString()}</span>
                         </div>
-                        <div className="flex justify-between">
-                          <span className="text-zinc-500">Open Issues:</span>
-                          <span className="font-bold text-zinc-300">{repository.open_issues.toLocaleString()}</span>
+                        <div className="flex justify-between items-center py-1 border-b border-zinc-800/40">
+                          <span className="text-zinc-500">Comment Lines:</span>
+                          <span className="font-bold text-emerald-400 font-mono">{reportData.metrics.comment_lines.toLocaleString()}</span>
+                        </div>
+                        <div className="flex justify-between items-center py-1">
+                          <span className="text-zinc-500">Blank Lines:</span>
+                          <span className="font-bold text-zinc-400 font-mono">{reportData.metrics.blank_lines.toLocaleString()}</span>
                         </div>
                       </div>
                     </div>
                   </div>
                 )}
 
-                {/* 2. Code Metrics Tab */}
+                {/* 2. Metrics Tab */}
                 {activeTab === 'metrics' && (
                   <div className="space-y-6 animate-fade-in">
-                    {/* Line count stats */}
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                      {[
-                        { label: 'Total Lines', count: reportData.metrics.total_lines, desc: 'Sum of all parsed files' },
-                        { label: 'Code Lines', count: reportData.metrics.code_lines, desc: 'Excluding comments & blanks', color: 'text-indigo-400' },
-                        { label: 'Comment Lines', count: reportData.metrics.comment_lines, desc: 'Block and inline comments', color: 'text-emerald-400' },
-                        { label: 'Blank Lines', count: reportData.metrics.blank_lines, desc: 'Empty whitespace lines', color: 'text-zinc-500' }
-                      ].map((item, idx) => (
-                        <div key={idx} className="bg-zinc-900/40 border border-zinc-800 rounded-xl p-5">
-                          <span className="text-xs text-zinc-500 uppercase tracking-wider font-semibold">{item.label}</span>
-                          <p className={`text-3xl font-extrabold mt-2 ${item.color || 'text-white'}`}>
-                            {item.count.toLocaleString()}
-                          </p>
-                          <p className="text-xxs text-zinc-600 mt-2">{item.desc}</p>
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* Progress distribution bar */}
-                    {reportData.metrics.total_lines > 0 && (
-                      <div className="bg-zinc-900/30 border border-zinc-800 rounded-2xl p-6 space-y-4">
-                        <h4 className="font-bold text-zinc-200 text-xs">Lines Composition</h4>
-                        <div className="h-4 w-full bg-zinc-950 rounded-lg overflow-hidden flex text-xxs font-bold text-center">
-                          <div 
-                            style={{ width: `${(reportData.metrics.code_lines / reportData.metrics.total_lines) * 100}%` }} 
-                            className="bg-indigo-600 text-white flex items-center justify-center"
-                          >
-                            {Math.round((reportData.metrics.code_lines / reportData.metrics.total_lines) * 100)}% Code
-                          </div>
-                          <div 
-                            style={{ width: `${(reportData.metrics.comment_lines / reportData.metrics.total_lines) * 100}%` }} 
-                            className="bg-emerald-600 text-white flex items-center justify-center"
-                          >
-                            {Math.round((reportData.metrics.comment_lines / reportData.metrics.total_lines) * 100)}% Comments
-                          </div>
-                          <div 
-                            style={{ width: `${(reportData.metrics.blank_lines / reportData.metrics.total_lines) * 100}%` }} 
-                            className="bg-zinc-700 text-zinc-300 flex items-center justify-center"
-                          >
-                            {Math.round((reportData.metrics.blank_lines / reportData.metrics.total_lines) * 100)}% Blanks
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Largest files panel */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      {/* By size */}
-                      <div className="bg-zinc-900/30 border border-zinc-800 rounded-2xl p-6">
-                        <h4 className="font-bold text-zinc-200 text-xs border-b border-zinc-800 pb-2 mb-4">Largest Files by Size</h4>
-                        <div className="space-y-3 font-mono text-xs">
-                          {reportData.metrics.largest_files_by_size.map((file, idx) => (
-                            <div key={idx} className="flex justify-between items-center py-1 hover:bg-zinc-800/20 px-2 rounded">
-                              <span className="text-zinc-300 truncate max-w-[70%]" title={file.path}>{file.path}</span>
-                              <span className="text-zinc-500 font-semibold">{(file.size_bytes / 1024).toFixed(2)} KB</span>
+                      
+                      {/* Largest Files by Lines */}
+                      <div className="bg-zinc-900/30 border border-zinc-800 rounded-2xl p-6 space-y-4">
+                        <h4 className="font-bold text-zinc-200 text-sm border-b border-zinc-800 pb-2">Largest Files (By Line Count)</h4>
+                        <div className="space-y-2">
+                          {reportData.metrics.largest_files_by_lines.map((item, idx) => (
+                            <div key={idx} className="bg-zinc-950 p-3 rounded-xl border border-zinc-800 flex justify-between items-center text-xs">
+                              <span className="font-mono text-zinc-300 truncate max-w-[70%]">{item.path}</span>
+                              <span className="font-bold text-indigo-400 font-mono">{item.line_count.toLocaleString()} lines</span>
                             </div>
                           ))}
                         </div>
                       </div>
 
-                      {/* By lines */}
-                      <div className="bg-zinc-900/30 border border-zinc-800 rounded-2xl p-6">
-                        <h4 className="font-bold text-zinc-200 text-xs border-b border-zinc-800 pb-2 mb-4">Largest Files by Line Count</h4>
-                        <div className="space-y-3 font-mono text-xs">
-                          {reportData.metrics.largest_files_by_lines.map((file, idx) => (
-                            <div key={idx} className="flex justify-between items-center py-1 hover:bg-zinc-800/20 px-2 rounded">
-                              <span className="text-zinc-300 truncate max-w-[70%]" title={file.path}>{file.path}</span>
-                              <span className="text-indigo-400 font-semibold">{file.line_count.toLocaleString()} lines</span>
+                      {/* Largest Files by Size */}
+                      <div className="bg-zinc-900/30 border border-zinc-800 rounded-2xl p-6 space-y-4">
+                        <h4 className="font-bold text-zinc-200 text-sm border-b border-zinc-800 pb-2">Largest Files (By Size)</h4>
+                        <div className="space-y-2">
+                          {reportData.metrics.largest_files_by_size.map((item, idx) => (
+                            <div key={idx} className="bg-zinc-950 p-3 rounded-xl border border-zinc-800 flex justify-between items-center text-xs">
+                              <span className="font-mono text-zinc-300 truncate max-w-[70%]">{item.path}</span>
+                              <span className="font-bold text-emerald-400 font-mono">{(item.size_bytes / 1024).toFixed(1)} KB</span>
                             </div>
                           ))}
                         </div>
                       </div>
                     </div>
-
                   </div>
                 )}
 
                 {/* 3. Languages Tab */}
                 {activeTab === 'languages' && (
-                  <div className="bg-zinc-900/30 border border-zinc-800 rounded-2xl p-6 space-y-6 animate-fade-in max-w-4xl mx-auto">
-                    <h4 className="font-bold text-zinc-200 text-sm border-b border-zinc-800 pb-2 mb-4">Language Composition</h4>
+                  <div className="bg-zinc-900/30 border border-zinc-800 rounded-2xl p-6 space-y-6 animate-fade-in">
+                    <h4 className="font-bold text-zinc-200 text-sm border-b border-zinc-800 pb-2">Language Distribution</h4>
                     
-                    <div className="space-y-5">
+                    <div className="space-y-4">
                       {reportData.languages.map((lang, idx) => (
-                        <div key={idx} className="space-y-2">
-                          <div className="flex justify-between text-xs font-semibold">
-                            <span className="text-zinc-300">{lang.language}</span>
-                            <span className="text-zinc-400">
-                              {lang.file_count} {lang.file_count === 1 ? 'file' : 'files'} ({lang.percentage}%)
-                            </span>
+                        <div key={idx} className="space-y-1.5">
+                          <div className="flex justify-between text-xs">
+                            <span className="font-semibold text-zinc-200">{lang.language}</span>
+                            <span className="text-zinc-500 font-mono">{lang.file_count} files ({lang.percentage}%)</span>
                           </div>
-                          
-                          {/* Percentage progress bar */}
-                          <div className="w-full bg-zinc-950 h-2 rounded-full overflow-hidden">
+                          <div className="w-full h-2 bg-zinc-800 rounded-full overflow-hidden">
                             <div 
-                              style={{ width: `${lang.percentage}%` }} 
-                              className="bg-indigo-600 h-full rounded-full"
-                            ></div>
+                              className="h-full bg-gradient-to-r from-violet-500 to-indigo-500 rounded-full transition-all duration-500" 
+                              style={{ width: `${lang.percentage}%` }}
+                            />
                           </div>
                         </div>
                       ))}
-                      
-                      {reportData.languages.length === 0 && (
-                        <p className="text-center text-zinc-500 text-xs py-8">No supported source code files detected.</p>
-                      )}
                     </div>
                   </div>
                 )}
@@ -667,71 +1110,58 @@ export default function App() {
                   <div className="space-y-6 animate-fade-in">
                     
                     {/* Severity Filters */}
-                    <div className="flex flex-wrap items-center gap-2 border-b border-zinc-800 pb-4">
-                      <span className="text-xs text-zinc-500 font-bold uppercase mr-2">Severity:</span>
-                      {[
-                        { id: 'all', label: 'All Findings' },
-                        { id: 'critical', label: 'Critical' },
-                        { id: 'high', label: 'High' },
-                        { id: 'medium', label: 'Medium' },
-                        { id: 'low', label: 'Low' },
-                        { id: 'info', label: 'Info' }
-                      ].map(filter => (
+                    <div className="flex items-center space-x-2 text-xs overflow-x-auto pb-2 custom-scrollbar">
+                      {(['all', 'critical', 'high', 'medium', 'low', 'info'] as const).map(sev => (
                         <button
-                          key={filter.id}
-                          onClick={() => setSeverityFilter(filter.id as any)}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition cursor-pointer ${
-                            severityFilter === filter.id 
-                              ? 'bg-indigo-600 text-white border-indigo-500' 
-                              : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200'
+                          key={sev}
+                          onClick={() => setSeverityFilter(sev)}
+                          className={`px-3 py-1.5 rounded-xl capitalize font-medium transition cursor-pointer border ${
+                            severityFilter === sev 
+                              ? 'bg-zinc-800 text-white border-zinc-700' 
+                              : 'bg-zinc-950 text-zinc-500 border-zinc-800/80 hover:text-zinc-300'
                           }`}
                         >
-                          {filter.label}
+                          {sev} {sev !== 'all' && `(${reportData.findings.filter(f => f.severity === sev).length})`}
                         </button>
                       ))}
                     </div>
 
                     {/* Findings list */}
-                    <div className="space-y-4 max-w-5xl mx-auto">
-                      {getFilteredFindings().map((finding, idx) => (
-                        <div key={idx} className="bg-zinc-900/30 border border-zinc-800 rounded-2xl p-5 hover:border-zinc-700/80 transition space-y-3">
-                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-zinc-800 pb-2">
-                            <div className="flex flex-wrap items-center gap-2.5">
-                              <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border ${getSeverityBadgeClass(finding.severity)}`}>
-                                {finding.severity}
-                              </span>
-                              <h5 className="font-bold text-sm text-zinc-200">{finding.title}</h5>
+                    {getFilteredFindings().length === 0 ? (
+                      <div className="bg-zinc-900/30 border border-zinc-800 rounded-2xl p-12 text-center text-zinc-500 text-xs">
+                        No findings detected matching current filter criteria.
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {getFilteredFindings().map(finding => (
+                          <div key={finding.id} className="bg-zinc-900/40 border border-zinc-800 rounded-2xl p-5 space-y-2.5">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2">
+                                <span className={`px-2 py-0.5 rounded-full text-xxs font-bold uppercase border ${getSeverityBadgeClass(finding.severity)}`}>
+                                  {finding.severity}
+                                </span>
+                                <span className="font-bold text-zinc-200 text-sm">{finding.title}</span>
+                              </div>
+                              <span className="text-xxs font-mono text-zinc-500">{finding.category}</span>
                             </div>
-                            <span className="text-[10px] bg-zinc-800 text-zinc-400 border border-zinc-700 font-semibold px-2 py-0.5 rounded-md uppercase">
-                              {finding.category}
-                            </span>
-                          </div>
 
-                          <div className="space-y-2 text-xs">
-                            <p className="text-zinc-300 leading-relaxed">{finding.description}</p>
-                            
-                            <div className="bg-zinc-950 p-3 rounded-lg border border-zinc-800 font-mono text-xxs text-zinc-500">
-                              File: <span className="text-zinc-300">{finding.file}</span> (Line: {finding.line})
-                            </div>
-                            
-                            <div className="text-zinc-400 pt-1 flex items-start space-x-1.5">
-                              <Info className="w-4 h-4 text-indigo-400 flex-shrink-0 mt-0.5" />
-                              <p><span className="font-semibold text-zinc-300">Recommendation:</span> {finding.recommendation}</p>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
+                            <p className="text-xs text-zinc-400">{finding.description}</p>
 
-                      {getFilteredFindings().length === 0 && (
-                        <div className="text-center py-12 border border-zinc-800 bg-zinc-900/10 rounded-2xl space-y-3">
-                          <CheckCircle2 className="w-8 h-8 text-zinc-700 mx-auto" />
-                          <h5 className="font-bold text-zinc-300 text-sm">No findings reported</h5>
-                          <p className="text-xs text-zinc-500 max-w-xs mx-auto">
-                            No static issues matching this filter were detected by the rule scanners.
-                          </p>
-                        </div>
-                      )}
-                    </div>
+                            <div className="flex items-center gap-4 text-xxs font-mono text-zinc-500 pt-1">
+                              <span>File: <span className="text-zinc-300">{finding.file}</span></span>
+                              <span>Line: <span className="text-indigo-400">{finding.line}</span></span>
+                            </div>
+
+                            {finding.recommendation && (
+                              <div className="bg-zinc-950 p-2.5 rounded-lg border border-zinc-800/80 text-xxs text-zinc-400 mt-2">
+                                <span className="text-indigo-400 font-bold">Fix: </span>
+                                {finding.recommendation}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
 
                   </div>
                 )}
@@ -786,12 +1216,12 @@ export default function App() {
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
           <div className="flex items-center space-x-2">
             <Terminal className="w-4 h-4 text-indigo-500/60" />
-            <span className="font-bold text-zinc-400">DevLens Project</span>
+            <span className="font-bold text-zinc-400">DevLens Platform</span>
             <span>|</span>
-            <span>Phase 3 Scanners</span>
+            <span className="text-violet-400">Phase 4 Gemini AI Intelligence Layer</span>
           </div>
           <div>
-            Tech Stack: React, Vite, TS, Tailwind CSS v4, FastAPI, Docker
+            Advisory Notice: AI analysis and recommendations are advisory and should be validated by human engineering teams.
           </div>
           <div>
             &copy; {new Date().getFullYear()} DevLens. All rights reserved.

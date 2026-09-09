@@ -103,3 +103,70 @@ export interface AnalysisReport {
   analysis_metadata: AnalysisMetadata;
   tree: TreeItem[];
 }
+
+// Phase 4 AI Intelligence Layer Interfaces
+export type AssessmentRating = 'excellent' | 'good' | 'fair' | 'needs_attention' | 'poor';
+export type PriorityLevel = 'critical' | 'high' | 'medium' | 'low';
+export type ConfidenceLevel = 'high' | 'medium' | 'low';
+
+export interface ArchitectureAssessment {
+  rating: AssessmentRating;
+  assessment: string;
+  strengths: string[];
+  weaknesses: string[];
+}
+
+export interface SecurityAssessment {
+  rating: AssessmentRating;
+  assessment: string;
+  strengths: string[];
+  weaknesses: string[];
+  important_issues: string[];
+  recommendations: string[];
+}
+
+export interface PerformanceAssessment {
+  rating: AssessmentRating;
+  assessment: string;
+  recommendations: string[];
+}
+
+export interface MaintainabilityAssessment {
+  rating: AssessmentRating;
+  assessment: string;
+  recommendations: string[];
+}
+
+export interface DocumentationAssessment {
+  rating: AssessmentRating;
+  assessment: string;
+  recommendations: string[];
+}
+
+export interface PriorityRecommendation {
+  priority: PriorityLevel;
+  category: string;
+  title: string;
+  explanation: string;
+  recommendation: string;
+  evidence: string;
+}
+
+export interface AIAnalysisReport {
+  executive_summary: string;
+  architecture: ArchitectureAssessment;
+  security: SecurityAssessment;
+  performance: PerformanceAssessment;
+  maintainability: MaintainabilityAssessment;
+  documentation: DocumentationAssessment;
+  strengths: string[];
+  priorities: PriorityRecommendation[];
+  confidence: ConfidenceLevel;
+  confidence_reason?: string | null;
+}
+
+export interface AIAnalyzeResponse {
+  repository: RepositoryMetadata;
+  deterministic_analysis: AnalysisReport;
+  ai_analysis: AIAnalysisReport;
+}
