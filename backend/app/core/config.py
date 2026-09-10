@@ -71,7 +71,7 @@ class Settings(BaseSettings):
     MAX_EVIDENCE_FILES: int = 12
     MAX_CHARS_PER_FILE: int = 12000
     MAX_TOTAL_EVIDENCE_CHARS: int = 60000
-    AI_REQUEST_TIMEOUT_SECONDS: float = 30.0
+    AI_REQUEST_TIMEOUT_SECONDS: float = 60.0
 
     @model_validator(mode="after")
     def validate_production_secret_key(self) -> "Settings":

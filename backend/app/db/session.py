@@ -8,9 +8,12 @@ logger = logging.getLogger(__name__)
 
 # Engine created with pool_pre_ping to verify connections before checkout.
 # Does not establish a network connection until first use.
+connect_args = {"check_same_thread": False} if "sqlite" in settings.DATABASE_URL else {}
+
 engine = create_engine(
     settings.DATABASE_URL,
     pool_pre_ping=True,
+    connect_args=connect_args,
     echo=getattr(settings, "DB_ECHO", False),
 )
 
