@@ -183,6 +183,7 @@ def test_unauthenticated_protected_endpoints_return_401():
         ("POST", "/api/repositories/analyze/ai"),
         ("GET", f"/api/repositories/{uuid.uuid4()}"),
         ("GET", f"/api/repositories/{uuid.uuid4()}/analyses"),
+        ("GET", f"/api/repositories/{uuid.uuid4()}/trends"),
         ("GET", f"/api/analyses/{uuid.uuid4()}"),
     ]
 

@@ -73,3 +73,37 @@ class AnalysisRunResponse(AnalysisRunSummaryResponse):
     metadata_json: Optional[Dict[str, Any]] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class TrendPoint(BaseModel):
+    """Schema representing a single historical analysis trend point with comparison deltas."""
+    analysis_id: uuid.UUID
+    analysis_type: str
+    created_at: datetime
+    completed_at: Optional[datetime] = None
+    total_lines: Optional[int] = None
+    code_lines: Optional[int] = None
+    total_files: Optional[int] = None
+    findings_count: Optional[int] = None
+    delta_total_lines: Optional[int] = None
+    delta_code_lines: Optional[int] = None
+    delta_total_files: Optional[int] = None
+    delta_findings_count: Optional[int] = None
+    pct_change_total_lines: Optional[float] = None
+    pct_change_code_lines: Optional[float] = None
+    pct_change_total_files: Optional[float] = None
+    pct_change_findings_count: Optional[float] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class RepositoryTrendsResponse(BaseModel):
+    """Schema representing the historical trends and comparison response for a repository."""
+    repository_id: uuid.UUID
+    github_url: str
+    owner: str
+    name: str
+    total_runs_analyzed: int
+    trends: List[TrendPoint]
+
+    model_config = ConfigDict(from_attributes=True)

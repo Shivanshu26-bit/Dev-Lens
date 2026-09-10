@@ -1,3 +1,4 @@
+import math
 import uuid
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any, Union, List
@@ -5,7 +6,13 @@ from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
 from app.models.repository import Repository
-from app.schemas.persistence_schemas import RepositoryListItemResponse, LatestAnalysisSummary
+from app.models.analysis import AnalysisRun, AnalysisStatus
+from app.schemas.persistence_schemas import (
+    RepositoryListItemResponse,
+    LatestAnalysisSummary,
+    TrendPoint,
+    RepositoryTrendsResponse,
+)
 
 
 def get_repository_by_url(db: Session, github_url: str) -> Optional[Repository]:
@@ -261,3 +268,146 @@ def delete_repository(
     db.delete(repo)
     db.commit()
     return True
+
+
+def compute_pct_change(current: Optional[int], previous: Optional[int]) -> Optional[float]:
+    """
+    Computes deterministic percentage change between two values with safe zero-handling.
+    - If either value is None: returns None
+    - If previous is 0 and current is 0: returns 0.0
+    - If previous is 0 and current != 0: returns None (division by zero is undefined)
+    - Otherwise returns ((current - previous) / previous) * 100.0 rounded to 2 decimal places.
+    Guarantees no NaN or Infinity is ever returned.
+    """
+    if current is None or previous is None:
+        return None
+    if previous == 0:
+        return 0.0 if current == 0 else None
+
+    res = round(((current - previous) / previous) * 100.0, 2)
+    if math.isnan(res) or math.isinf(res):
+        return None
+    if res == 0.0:
+        return 0.0
+    return res
+
+
+def get_repository_trends(
+    db: Session,
+    repository_id: Union[uuid.UUID, str],
+    user_id: Union[uuid.UUID, str]
+) -> Optional[RepositoryTrendsResponse]:
+    """
+    Retrieves chronological trend points and delta comparisons for all completed
+    analysis runs for a repository owned by user_id.
+    Returns None if repository does not exist or user_id is not the owner.
+    """
+    repo = get_repository_by_id(db, repository_id=repository_id, user_id=user_id)
+    if not repo:
+        return None
+
+    # Fetch completed analysis runs in ascending chronological order
+    stmt = (
+        select(AnalysisRun)
+        .where(
+            AnalysisRun.repository_id == repo.id,
+            AnalysisRun.status == AnalysisStatus.COMPLETED.value
+        )
+        .order_by(AnalysisRun.created_at.asc(), AnalysisRun.id.asc())
+    )
+    runs = db.scalars(stmt).all()
+
+    trend_points: List[TrendPoint] = []
+    prev_point: Optional[TrendPoint] = None
+
+    for run in runs:
+        # Extract metrics safely from run.metrics or run.deterministic_result
+        total_lines = None
+        code_lines = None
+        total_files = None
+        findings_count = None
+
+        if run.metrics and isinstance(run.metrics, dict):
+            total_lines = run.metrics.get("total_lines")
+            code_lines = run.metrics.get("code_lines")
+            if total_files is None:
+                total_files = run.metrics.get("total_files")
+
+        if run.deterministic_result and isinstance(run.deterministic_result, dict):
+            if total_lines is None or code_lines is None:
+                metrics_dict = run.deterministic_result.get("metrics") or {}
+                if total_lines is None:
+                    total_lines = metrics_dict.get("total_lines")
+                if code_lines is None:
+                    code_lines = metrics_dict.get("code_lines")
+
+            if total_files is None:
+                summary_dict = run.deterministic_result.get("summary") or {}
+                total_files = summary_dict.get("total_files")
+
+            findings_list = run.deterministic_result.get("findings")
+            if findings_list is not None and isinstance(findings_list, list):
+                findings_count = len(findings_list)
+
+        if findings_count is None and run.findings is not None and isinstance(run.findings, list):
+            findings_count = len(run.findings)
+
+        if total_files is None and run.metadata_json and isinstance(run.metadata_json, dict):
+            total_files = run.metadata_json.get("total_files")
+
+        # Compute deltas and percentage changes
+        delta_total_lines = None
+        delta_code_lines = None
+        delta_total_files = None
+        delta_findings_count = None
+        pct_change_total_lines = None
+        pct_change_code_lines = None
+        pct_change_total_files = None
+        pct_change_findings_count = None
+
+        if prev_point is not None:
+            if total_lines is not None and prev_point.total_lines is not None:
+                delta_total_lines = total_lines - prev_point.total_lines
+                pct_change_total_lines = compute_pct_change(total_lines, prev_point.total_lines)
+
+            if code_lines is not None and prev_point.code_lines is not None:
+                delta_code_lines = code_lines - prev_point.code_lines
+                pct_change_code_lines = compute_pct_change(code_lines, prev_point.code_lines)
+
+            if total_files is not None and prev_point.total_files is not None:
+                delta_total_files = total_files - prev_point.total_files
+                pct_change_total_files = compute_pct_change(total_files, prev_point.total_files)
+
+            if findings_count is not None and prev_point.findings_count is not None:
+                delta_findings_count = findings_count - prev_point.findings_count
+                pct_change_findings_count = compute_pct_change(findings_count, prev_point.findings_count)
+
+        point = TrendPoint(
+            analysis_id=run.id,
+            analysis_type=run.analysis_type,
+            created_at=run.created_at,
+            completed_at=run.completed_at,
+            total_lines=total_lines,
+            code_lines=code_lines,
+            total_files=total_files,
+            findings_count=findings_count,
+            delta_total_lines=delta_total_lines,
+            delta_code_lines=delta_code_lines,
+            delta_total_files=delta_total_files,
+            delta_findings_count=delta_findings_count,
+            pct_change_total_lines=pct_change_total_lines,
+            pct_change_code_lines=pct_change_code_lines,
+            pct_change_total_files=pct_change_total_files,
+            pct_change_findings_count=pct_change_findings_count
+        )
+        trend_points.append(point)
+        prev_point = point
+
+    return RepositoryTrendsResponse(
+        repository_id=repo.id,
+        github_url=repo.github_url,
+        owner=repo.owner,
+        name=repo.name,
+        total_runs_analyzed=len(trend_points),
+        trends=trend_points
+    )

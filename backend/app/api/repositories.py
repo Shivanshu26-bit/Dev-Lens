@@ -11,6 +11,7 @@ from app.schemas.persistence_schemas import (
     RepositoryResponse,
     RepositoryListItemResponse,
     AnalysisRunSummaryResponse,
+    RepositoryTrendsResponse,
 )
 from app.schemas.auth_schemas import MessageResponse
 from app.services.repository_persistence import (
@@ -19,6 +20,7 @@ from app.services.repository_persistence import (
     update_last_analyzed,
     get_user_repositories,
     delete_repository,
+    get_repository_trends,
 )
 from app.services.analysis_persistence import (
     create_analysis_run,
@@ -460,3 +462,22 @@ def get_repository_analyses(
         )
     return get_analyses_by_repository(db, repository_id, user_id=current_user.id, limit=limit)
 
+
+@router.get("/{repository_id}/trends", response_model=RepositoryTrendsResponse)
+def get_repository_historical_trends(
+    repository_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Retrieves chronological historical trends and delta comparisons for all
+    completed analysis runs for a repository owned by the authenticated user.
+    Enforces user ownership and returns 404 if not found or unauthorized.
+    """
+    trends = get_repository_trends(db, repository_id=repository_id, user_id=current_user.id)
+    if trends is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Repository '{repository_id}' not found"
+        )
+    return trends

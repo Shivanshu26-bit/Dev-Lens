@@ -4,6 +4,8 @@ from app.schemas.persistence_schemas import (
     LatestAnalysisSummary,
     AnalysisRunSummaryResponse,
     AnalysisRunResponse,
+    TrendPoint,
+    RepositoryTrendsResponse,
 )
 from app.schemas.auth_schemas import (
     UserResponse,
@@ -17,6 +19,8 @@ __all__ = [
     "LatestAnalysisSummary",
     "AnalysisRunSummaryResponse",
     "AnalysisRunResponse",
+    "TrendPoint",
+    "RepositoryTrendsResponse",
     "UserResponse",
     "AuthStatusResponse",
     "MessageResponse",
