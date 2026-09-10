@@ -7,11 +7,18 @@ from app.db.session import get_db
 from app.models.user import User
 from app.models.analysis import AnalysisType
 from app.api.auth import get_current_user
-from app.schemas.persistence_schemas import RepositoryResponse, AnalysisRunSummaryResponse
+from app.schemas.persistence_schemas import (
+    RepositoryResponse,
+    RepositoryListItemResponse,
+    AnalysisRunSummaryResponse,
+)
+from app.schemas.auth_schemas import MessageResponse
 from app.services.repository_persistence import (
     create_or_update_repository,
     get_repository_by_id,
-    update_last_analyzed
+    update_last_analyzed,
+    get_user_repositories,
+    delete_repository,
 )
 from app.services.analysis_persistence import (
     create_analysis_run,
@@ -381,6 +388,21 @@ async def analyze_repository_ai(
         )
 
 
+@router.get("", response_model=List[RepositoryListItemResponse])
+def list_repositories(
+    limit: int = 50,
+    offset: int = 0,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Retrieves all repositories analyzed by and owned by the authenticated user,
+    ordered with the most recently analyzed repositories first.
+    Includes latest analysis run status and summary metrics.
+    """
+    return get_user_repositories(db, user_id=current_user.id, limit=limit, offset=offset)
+
+
 @router.get("/{repository_id}", response_model=RepositoryResponse)
 def get_repository(
     repository_id: str,
@@ -398,6 +420,25 @@ def get_repository(
             detail=f"Repository '{repository_id}' not found"
         )
     return repo
+
+
+@router.delete("/{repository_id}", response_model=MessageResponse)
+def delete_repository_record(
+    repository_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Deletes an ingested repository record and its associated historical analysis runs.
+    Enforces user ownership and returns 404 if not found or unauthorized to prevent ID enumeration.
+    """
+    deleted = delete_repository(db, repository_id=repository_id, user_id=current_user.id)
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Repository '{repository_id}' not found"
+        )
+    return MessageResponse(message=f"Repository '{repository_id}' deleted successfully")
 
 
 @router.get("/{repository_id}/analyses", response_model=List[AnalysisRunSummaryResponse])
@@ -418,5 +459,4 @@ def get_repository_analyses(
             detail=f"Repository '{repository_id}' not found"
         )
     return get_analyses_by_repository(db, repository_id, user_id=current_user.id, limit=limit)
-
 

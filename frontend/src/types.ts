@@ -171,7 +171,6 @@ export interface AIAnalyzeResponse {
   ai_analysis: AIAnalysisReport;
 }
 
-// Phase 5B Authentication Interfaces
 export interface User {
   id: string;
   github_user_id: string;
@@ -180,4 +179,36 @@ export interface User {
   email: string | null;
   avatar_url: string | null;
   created_at: string;
+}
+
+// Phase 6A Repository History Interfaces
+export interface LatestAnalysisSummary {
+  id: string;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  analysis_type: 'deterministic' | 'ai' | 'full';
+  created_at: string;
+  completed_at: string | null;
+  error_message: string | null;
+  total_lines: number | null;
+  code_lines: number | null;
+  total_files: number | null;
+  findings_count: number | null;
+}
+
+export interface RepositoryListItem {
+  id: string;
+  github_url: string;
+  owner: string;
+  name: string;
+  default_branch: string;
+  description: string | null;
+  stars: number;
+  forks: number;
+  open_issues: number;
+  language: string | null;
+  is_private: boolean;
+  created_at: string;
+  updated_at: string;
+  last_analyzed_at: string | null;
+  latest_analysis: LatestAnalysisSummary | null;
 }

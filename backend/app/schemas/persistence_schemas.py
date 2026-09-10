@@ -24,6 +24,31 @@ class RepositoryResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class LatestAnalysisSummary(BaseModel):
+    """Schema representing an abbreviated summary of the latest analysis run for dashboard display."""
+    id: uuid.UUID
+    status: str
+    analysis_type: str
+    created_at: datetime
+    completed_at: Optional[datetime] = None
+    error_message: Optional[str] = None
+    total_lines: Optional[int] = None
+    code_lines: Optional[int] = None
+    total_files: Optional[int] = None
+    findings_count: Optional[int] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class RepositoryListItemResponse(RepositoryResponse):
+    """Schema for repository list items containing latest analysis run metadata."""
+    latest_analysis: Optional[LatestAnalysisSummary] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+
+
 class AnalysisRunSummaryResponse(BaseModel):
     """Schema representing an abbreviated summary of an analysis run."""
     id: uuid.UUID
