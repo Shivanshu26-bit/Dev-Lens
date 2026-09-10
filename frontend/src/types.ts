@@ -212,3 +212,23 @@ export interface RepositoryListItem {
   last_analyzed_at: string | null;
   latest_analysis: LatestAnalysisSummary | null;
 }
+
+export interface AnalysisRunSummary {
+  id: string;
+  repository_id: string;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  analysis_type: 'deterministic' | 'ai' | 'full';
+  created_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+  error_message: string | null;
+}
+
+export interface AnalysisRunDetail extends AnalysisRunSummary {
+  deterministic_result: AnalysisReport | null;
+  ai_result: AIAnalysisReport | null;
+  metrics: RepoMetrics | null;
+  findings: Finding[] | null;
+  languages: LanguageDistribution[] | null;
+  metadata_json: Record<string, any> | null;
+}

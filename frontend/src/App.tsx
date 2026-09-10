@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  Terminal, 
-  Shield, 
-  Search, 
-  Code, 
-  CheckCircle2, 
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  Terminal,
+  Shield,
+  Search,
+  Code,
+  CheckCircle2,
   ExternalLink,
   FileCode,
   Gauge,
@@ -24,18 +24,23 @@ import {
   Activity,
   ArrowRight,
   LogOut,
-  User as UserIcon
+  User as UserIcon,
+  History,
+  Database
 } from 'lucide-react';
-import type { 
-  AnalyzeResponse, 
-  AnalysisReport, 
-  Finding, 
-  AIAnalysisReport, 
+import type {
+  AnalyzeResponse,
+  AnalysisReport,
+  Finding,
+  AIAnalysisReport,
   AIAnalyzeResponse,
   AssessmentRating,
   PriorityLevel,
-  User
+  User,
+  RepositoryListItem,
+  AnalysisRunDetail
 } from './types';
+import HistoryDrawer from './components/HistoryDrawer';
 
 const GithubIcon = (props: React.SVGProps<SVGSVGElement>) => (
   <svg
@@ -87,6 +92,20 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
 
+  // Repository History & Dashboard State (Phase 6B)
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [userRepos, setUserRepos] = useState<RepositoryListItem[]>([]);
+  const [reposLoading, setReposLoading] = useState(false);
+  const [reposError, setReposError] = useState<string | null>(null);
+  const [loadingRunId, setLoadingRunId] = useState<string | null>(null);
+  const [deletingRepoId, setDeletingRepoId] = useState<string | null>(null);
+  const [loadedRunInfo, setLoadedRunInfo] = useState<{
+    id: string;
+    type: string;
+    createdAt: string;
+    repoName: string;
+  } | null>(null);
+
   // Check current authenticated user and handle OAuth error redirects
   useEffect(() => {
     const checkAuth = async () => {
@@ -134,6 +153,114 @@ export default function App() {
       console.error('Logout failed:', err);
     } finally {
       setCurrentUser(null);
+      setUserRepos([]);
+      setLoadedRunInfo(null);
+    }
+  };
+
+  // Fetch repositories owned by authenticated user (Phase 6B)
+  const fetchUserRepositories = useCallback(async () => {
+    if (!currentUser) {
+      setUserRepos([]);
+      return;
+    }
+    setReposLoading(true);
+    setReposError(null);
+    try {
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      const res = await fetch(`${apiUrl}/api/repositories`, {
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        throw new Error(`Failed to load repositories: ${res.status}`);
+      }
+      const data: RepositoryListItem[] = await res.json();
+      setUserRepos(data);
+    } catch (err: any) {
+      console.error('Error fetching repositories:', err);
+      setReposError(err.message || 'Could not load repositories.');
+    } finally {
+      setReposLoading(false);
+    }
+  }, [currentUser]);
+
+  // On user authentication change, automatically fetch user's repositories
+  useEffect(() => {
+    if (currentUser) {
+      fetchUserRepositories();
+    } else {
+      setUserRepos([]);
+    }
+  }, [currentUser, fetchUserRepositories]);
+
+  // Load an existing persisted historical analysis report (Phase 6B)
+  // Strictly loads from GET /api/analyses/{analysis_id} without triggering any new POST analysis
+  const handleLoadHistoricalRun = async (runId: string) => {
+    setLoadingRunId(runId);
+    setErrorMsg(null);
+    try {
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      const res = await fetch(`${apiUrl}/api/analyses/${runId}`, {
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.detail || `Failed to load analysis run: ${res.status}`);
+      }
+      const runDetail: AnalysisRunDetail = await res.json();
+
+      if (runDetail.deterministic_result) {
+        setReportData(runDetail.deterministic_result);
+        setRepoUrl(runDetail.deterministic_result.repository.url);
+      }
+      if (runDetail.ai_result) {
+        setAiData(runDetail.ai_result);
+        setActiveTab('ai-review');
+      } else {
+        setAiData(null);
+        setActiveTab('overview');
+      }
+      setQuickData(null);
+
+      const repoName = runDetail.deterministic_result?.repository.name || 'Repository';
+      setLoadedRunInfo({
+        id: runDetail.id,
+        type: runDetail.analysis_type,
+        createdAt: runDetail.created_at,
+        repoName,
+      });
+
+      setIsHistoryOpen(false);
+    } catch (err: any) {
+      console.error('Failed to load historical analysis run:', err);
+      setErrorMsg(err.message || 'Could not load historical analysis report.');
+    } finally {
+      setLoadingRunId(null);
+    }
+  };
+
+  // Delete repository record from DevLens persistence layer (Phase 6B)
+  const handleDeleteRepository = async (repoId: string) => {
+    setDeletingRepoId(repoId);
+    try {
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      const res = await fetch(`${apiUrl}/api/repositories/${repoId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.detail || `Failed to delete repository: ${res.status}`);
+      }
+      setUserRepos(prev => prev.filter(r => r.id !== repoId));
+      if (loadedRunInfo) {
+        setLoadedRunInfo(null);
+      }
+    } catch (err: any) {
+      console.error('Failed to delete repository:', err);
+      setReposError(err.message || 'Could not delete repository.');
+    } finally {
+      setDeletingRepoId(null);
     }
   };
 
@@ -208,6 +335,7 @@ export default function App() {
       }
 
       const payload = await response.json();
+      setLoadedRunInfo(null);
       if (scanType === 'ai') {
         const aiResponse = payload as AIAnalyzeResponse;
         setReportData(aiResponse.deterministic_analysis);
@@ -220,6 +348,8 @@ export default function App() {
         setQuickData(payload as AnalyzeResponse);
         setActiveTab('overview');
       }
+      // Refresh repository history list in background
+      fetchUserRepositories();
     } catch (err: any) {
       console.error('Analysis failed:', err);
       setErrorMsg(err.message || 'An unexpected error occurred while communicating with the DevLens API.');
@@ -441,26 +571,45 @@ export default function App() {
             {authLoading ? (
               <div className="w-24 h-8 bg-zinc-800/70 animate-pulse rounded-xl" />
             ) : currentUser ? (
-              <div className="flex items-center space-x-2.5 bg-zinc-900/90 border border-zinc-750 pl-2 pr-3 py-1 rounded-full shadow-sm">
-                {currentUser.avatar_url ? (
-                  <img
-                    src={currentUser.avatar_url}
-                    alt={currentUser.github_login}
-                    className="w-5 h-5 rounded-full border border-zinc-700"
-                  />
-                ) : (
-                  <div className="w-5 h-5 rounded-full bg-indigo-900/80 flex items-center justify-center text-indigo-300">
-                    <UserIcon className="w-3 h-3" />
-                  </div>
-                )}
-                <span className="font-semibold text-zinc-200">{currentUser.github_login}</span>
+              <div className="flex items-center space-x-2.5">
+                {/* Repository History Button */}
                 <button
-                  onClick={handleLogout}
-                  title="Sign out"
-                  className="text-zinc-400 hover:text-rose-400 transition-colors ml-1 p-0.5 rounded"
+                  type="button"
+                  onClick={() => setIsHistoryOpen(true)}
+                  className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-zinc-900/90 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-750 transition-all shadow-sm active:scale-95 cursor-pointer"
+                  title="Open Repository History & Dashboard"
                 >
-                  <LogOut className="w-3.5 h-3.5" />
+                  <History className="w-3.5 h-3.5 text-indigo-400" />
+                  <span className="font-semibold">History</span>
+                  {userRepos.length > 0 && (
+                    <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-indigo-950 text-indigo-300 border border-indigo-800/80">
+                      {userRepos.length}
+                    </span>
+                  )}
                 </button>
+
+                {/* User Info Badge */}
+                <div className="flex items-center space-x-2.5 bg-zinc-900/90 border border-zinc-750 pl-2 pr-3 py-1 rounded-full shadow-sm">
+                  {currentUser.avatar_url ? (
+                    <img
+                      src={currentUser.avatar_url}
+                      alt={currentUser.github_login}
+                      className="w-5 h-5 rounded-full border border-zinc-700"
+                    />
+                  ) : (
+                    <div className="w-5 h-5 rounded-full bg-indigo-900/80 flex items-center justify-center text-indigo-300">
+                      <UserIcon className="w-3 h-3" />
+                    </div>
+                  )}
+                  <span className="font-semibold text-zinc-200">{currentUser.github_login}</span>
+                  <button
+                    onClick={handleLogout}
+                    title="Sign out"
+                    className="text-zinc-400 hover:text-rose-400 transition-colors ml-1 p-0.5 rounded cursor-pointer"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
             ) : (
               <button
@@ -612,6 +761,43 @@ export default function App() {
                 )}
               </button>
             </form>
+
+            {/* Quick Recent Repositories Chips (Phase 6B) */}
+            {currentUser && userRepos.length > 0 && (
+              <div className="pt-3 border-t border-zinc-850/70 flex flex-wrap items-center gap-2 text-xs">
+                <span className="text-zinc-400 font-medium flex items-center gap-1.5 shrink-0">
+                  <History className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>Recent Repositories:</span>
+                </span>
+                {userRepos.slice(0, 3).map(repo => (
+                  <button
+                    key={repo.id}
+                    type="button"
+                    onClick={() => {
+                      setRepoUrl(repo.github_url);
+                      setIsHistoryOpen(true);
+                    }}
+                    className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-zinc-950/80 hover:bg-zinc-800/90 text-zinc-300 hover:text-white border border-zinc-800 hover:border-zinc-700 transition-colors cursor-pointer"
+                    title={`View history for ${repo.owner}/${repo.name}`}
+                  >
+                    <span className="text-zinc-500">{repo.owner}/</span>
+                    <span className="font-semibold text-zinc-200">{repo.name}</span>
+                    {repo.latest_analysis?.status === 'completed' && (
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                    )}
+                  </button>
+                ))}
+                {userRepos.length > 3 && (
+                  <button
+                    type="button"
+                    onClick={() => setIsHistoryOpen(true)}
+                    className="text-xs text-indigo-400 hover:text-indigo-300 font-semibold underline ml-1 cursor-pointer"
+                  >
+                    View all ({userRepos.length}) →
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         </section>
 
@@ -651,6 +837,29 @@ export default function App() {
               <p className="font-semibold text-red-200">Analysis Request Failed</p>
               <p className="text-xs text-red-300/90 leading-relaxed">{errorMsg}</p>
             </div>
+          </div>
+        )}
+
+        {/* Persisted Historical Run Banner (Phase 6B) */}
+        {loadedRunInfo && (
+          <div className="max-w-4xl mx-auto bg-indigo-950/40 border border-indigo-800/80 text-indigo-200 px-4 py-3 rounded-2xl flex items-center justify-between text-xs shadow-md backdrop-blur-sm animate-fade-in">
+            <div className="flex items-center space-x-2.5">
+              <Database className="w-4 h-4 text-indigo-400 shrink-0" />
+              <div>
+                <span className="font-bold text-white">Viewing Persisted Analysis Report</span>
+                <span className="text-indigo-300/90 ml-2">
+                  Run <code className="font-mono text-indigo-200 bg-indigo-900/60 px-1.5 py-0.5 rounded text-[11px]">#{loadedRunInfo.id.slice(0, 8)}</code>
+                  {' '}({loadedRunInfo.type.toUpperCase()}) • Stored in PostgreSQL • Loaded without re-running analysis
+                </span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setLoadedRunInfo(null)}
+              className="text-zinc-400 hover:text-zinc-200 text-xs px-2.5 py-1 rounded-lg bg-zinc-900/80 hover:bg-zinc-800 border border-zinc-750 transition-colors cursor-pointer"
+            >
+              Dismiss
+            </button>
           </div>
         )}
 
@@ -1366,6 +1575,21 @@ export default function App() {
           </div>
         </div>
       </footer>
+
+      {/* History Drawer Modal / Slide-over (Phase 6B) */}
+      <HistoryDrawer
+        isOpen={isHistoryOpen}
+        onClose={() => setIsHistoryOpen(false)}
+        repositories={userRepos}
+        reposLoading={reposLoading}
+        reposError={reposError}
+        onRefreshRepos={fetchUserRepositories}
+        onLoadRun={handleLoadHistoricalRun}
+        loadingRunId={loadingRunId}
+        onDeleteRepo={handleDeleteRepository}
+        deletingRepoId={deletingRepoId}
+        currentActiveRunId={loadedRunInfo?.id}
+      />
 
     </div>
   );
