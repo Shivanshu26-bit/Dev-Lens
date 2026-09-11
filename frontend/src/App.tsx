@@ -38,7 +38,8 @@ import type {
   PriorityLevel,
   User,
   RepositoryListItem,
-  AnalysisRunDetail
+  AnalysisRunDetail,
+  HealthResponse
 } from './types';
 import HistoryDrawer from './components/HistoryDrawer';
 import RepositoryTrends from './components/RepositoryTrends';
@@ -128,6 +129,7 @@ export default function App() {
         if (res.ok) {
           const userData: User = await res.json();
           setCurrentUser(userData);
+          setBackendStatus('connected');
         } else {
           setCurrentUser(null);
         }
@@ -276,22 +278,34 @@ export default function App() {
     }
   };
 
-  // Ping backend health endpoint on mount to verify CORS connectivity
+  // Ping backend health endpoint on mount to verify backend connectivity
   useEffect(() => {
+    let isMounted = true;
+
     const checkBackendHealth = async () => {
       try {
         const response = await fetch(`${API_BASE_URL}/health`);
         if (response.ok) {
-          setBackendStatus('connected');
-        } else {
-          setBackendStatus('disconnected');
+          const data: HealthResponse = await response.json().catch(() => null);
+          if (data && data.status === 'ok') {
+            if (isMounted) setBackendStatus('connected');
+            return;
+          }
         }
+        if (isMounted) setBackendStatus('disconnected');
       } catch (error) {
         console.error('Failed to connect to backend API:', error);
-        setBackendStatus('disconnected');
+        if (isMounted) setBackendStatus('disconnected');
       }
     };
+
     checkBackendHealth();
+    const interval = setInterval(checkBackendHealth, 30000);
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
   }, []);
 
   // Cycle through AI loading stages while request is running

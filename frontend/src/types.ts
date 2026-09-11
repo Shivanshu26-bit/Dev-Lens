@@ -261,3 +261,13 @@ export interface RepositoryTrendsResponse {
   total_runs_analyzed: number;
   trends: TrendPoint[];
 }
+
+export interface HealthResponse {
+  status: string;
+  project?: string;
+  database?: string;
+  features?: {
+    database_integrated?: boolean;
+    ai_analysis_integrated?: boolean;
+  };
+}
