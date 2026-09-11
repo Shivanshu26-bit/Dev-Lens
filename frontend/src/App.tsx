@@ -41,6 +41,7 @@ import type {
   AnalysisRunDetail
 } from './types';
 import HistoryDrawer from './components/HistoryDrawer';
+import RepositoryTrends from './components/RepositoryTrends';
 
 const GithubIcon = (props: React.SVGProps<SVGSVGElement>) => (
   <svg
@@ -60,7 +61,7 @@ const GithubIcon = (props: React.SVGProps<SVGSVGElement>) => (
 );
 
 
-type TabType = 'overview' | 'metrics' | 'languages' | 'findings' | 'files' | 'ai-review';
+type TabType = 'overview' | 'metrics' | 'languages' | 'findings' | 'files' | 'ai-review' | 'trends';
 
 const AI_LOADING_STAGES = [
   "Ingesting repository & calculating metrics",
@@ -105,6 +106,16 @@ export default function App() {
     createdAt: string;
     repoName: string;
   } | null>(null);
+
+  // Repository Trends State (Phase 6D)
+  const [selectedTrendsRepo, setSelectedTrendsRepo] = useState<RepositoryListItem | null>(null);
+
+  const handleSelectRepoTrends = (repo: RepositoryListItem) => {
+    setSelectedTrendsRepo(repo);
+    setRepoUrl(repo.github_url);
+    setActiveTab('trends');
+    setIsHistoryOpen(false);
+  };
 
   // Check current authenticated user and handle OAuth error redirects
   useEffect(() => {
@@ -155,6 +166,7 @@ export default function App() {
       setCurrentUser(null);
       setUserRepos([]);
       setLoadedRunInfo(null);
+      setSelectedTrendsRepo(null);
     }
   };
 
@@ -229,6 +241,11 @@ export default function App() {
         createdAt: runDetail.created_at,
         repoName,
       });
+
+      const matchingRepo = userRepos.find(r => r.id === runDetail.repository_id);
+      if (matchingRepo) {
+        setSelectedTrendsRepo(matchingRepo);
+      }
 
       setIsHistoryOpen(false);
     } catch (err: any) {
@@ -402,7 +419,31 @@ export default function App() {
   const getActiveRepository = () => {
     if (reportData) return reportData.repository;
     if (quickData) return quickData.repository;
+    if (selectedTrendsRepo) {
+      return {
+        owner: selectedTrendsRepo.owner,
+        name: selectedTrendsRepo.name,
+        full_name: `${selectedTrendsRepo.owner}/${selectedTrendsRepo.name}`,
+        description: selectedTrendsRepo.description,
+        default_branch: selectedTrendsRepo.default_branch,
+        language: selectedTrendsRepo.language,
+        stars: selectedTrendsRepo.stars,
+        forks: selectedTrendsRepo.forks,
+        open_issues: selectedTrendsRepo.open_issues,
+        url: selectedTrendsRepo.github_url,
+      };
+    }
     return null;
+  };
+
+  const getEffectiveRepoId = (): string | null => {
+    if (selectedTrendsRepo) return selectedTrendsRepo.id;
+    const current = getActiveRepository();
+    if (!current) return null;
+    const match = userRepos.find(
+      r => r.github_url === current.url || (r.owner.toLowerCase() === current.owner.toLowerCase() && r.name.toLowerCase() === current.name.toLowerCase())
+    );
+    return match ? match.id : null;
   };
 
   const getActiveTree = () => {
@@ -900,7 +941,7 @@ export default function App() {
                   </button>
                 )}
                 <span className="text-xs text-indigo-400 font-semibold px-3 py-1.5 rounded-full bg-indigo-950/30 border border-indigo-800/50 flex items-center gap-1.5">
-                  <CheckCircle2 className="w-3.5 h-3.5" /> {reportData ? 'Deep Analysis Complete' : 'Quick Scan Complete'}
+                  <CheckCircle2 className="w-3.5 h-3.5" /> {reportData ? 'Deep Analysis Complete' : selectedTrendsRepo ? 'Analysis Trends' : 'Quick Scan Complete'}
                 </span>
               </div>
             </div>
@@ -960,12 +1001,12 @@ export default function App() {
               </div>
             )}
 
-            {/* Deep Analysis & AI Visuals (Phase 3 & 4) */}
-            {reportData && (
+            {/* Deep Analysis, AI Visuals & Historical Trends (Phase 3, 4 & 6D) */}
+            {(reportData || selectedTrendsRepo) && (
               <div className="space-y-6">
                 
                 {/* Skip Notification Alerts */}
-                {reportData.summary.skipped_files > 0 && (
+                {reportData && reportData.summary.skipped_files > 0 && (
                   <div className="bg-amber-950/20 border border-amber-900/80 rounded-2xl p-5 flex items-start space-x-3.5">
                     <AlertTriangle className="w-5 h-5 flex-shrink-0 text-amber-400 mt-0.5" />
                     <div className="space-y-1 text-xs text-amber-300">
@@ -980,12 +1021,15 @@ export default function App() {
                 {/* Navigation Tabs */}
                 <div className="border-b border-zinc-800 flex space-x-2 overflow-x-auto custom-scrollbar">
                   {[
-                    ...(aiData ? [{ id: 'ai-review', label: 'AI Review', icon: Sparkles, badge: 'Gemini' }] : [{ id: 'ai-review', label: 'AI Review', icon: Sparkles, badge: 'Run' }]),
-                    { id: 'overview', label: 'Overview', icon: Gauge },
-                    { id: 'metrics', label: 'Metrics', icon: FileText },
-                    { id: 'languages', label: 'Languages', icon: BarChart3 },
-                    { id: 'findings', label: 'Findings', icon: Shield, count: reportData.findings.length },
-                    { id: 'files', label: 'File Tree', icon: Folder }
+                    ...(aiData ? [{ id: 'ai-review', label: 'AI Review', icon: Sparkles, badge: 'Gemini' }] : reportData ? [{ id: 'ai-review', label: 'AI Review', icon: Sparkles, badge: 'Run' }] : []),
+                    ...(reportData ? [
+                      { id: 'overview', label: 'Overview', icon: Gauge },
+                      { id: 'metrics', label: 'Metrics', icon: FileText },
+                      { id: 'languages', label: 'Languages', icon: BarChart3 },
+                      { id: 'findings', label: 'Findings', icon: Shield, count: reportData.findings.length },
+                      { id: 'files', label: 'File Tree', icon: Folder },
+                    ] : []),
+                    { id: 'trends', label: 'Trends', icon: Activity }
                   ].map(tab => (
                     <button
                       key={tab.id}
@@ -1338,7 +1382,7 @@ export default function App() {
                 )}
                 
                 {/* 1. Overview Tab */}
-                {activeTab === 'overview' && (
+                {activeTab === 'overview' && reportData && (
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-fade-in">
                     {/* General summary counts */}
                     <div className="lg:col-span-2 bg-zinc-900/30 border border-zinc-800 rounded-2xl p-6 space-y-6">
@@ -1395,7 +1439,7 @@ export default function App() {
                 )}
 
                 {/* 2. Metrics Tab */}
-                {activeTab === 'metrics' && (
+                {activeTab === 'metrics' && reportData && (
                   <div className="space-y-6 animate-fade-in">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       
@@ -1429,7 +1473,7 @@ export default function App() {
                 )}
 
                 {/* 3. Languages Tab */}
-                {activeTab === 'languages' && (
+                {activeTab === 'languages' && reportData && (
                   <div className="bg-zinc-900/30 border border-zinc-800 rounded-2xl p-6 space-y-6 animate-fade-in">
                     <h4 className="font-bold text-zinc-200 text-sm border-b border-zinc-800 pb-2">Language Distribution</h4>
                     
@@ -1453,7 +1497,7 @@ export default function App() {
                 )}
 
                 {/* 4. Findings Tab */}
-                {activeTab === 'findings' && (
+                {activeTab === 'findings' && reportData && (
                   <div className="space-y-6 animate-fade-in">
                     
                     {/* Severity Filters */}
@@ -1514,7 +1558,7 @@ export default function App() {
                 )}
 
                 {/* 5. File Tree Tab */}
-                {activeTab === 'files' && (
+                {activeTab === 'files' && reportData && (
                   <div className="bg-zinc-900/30 border border-zinc-800 rounded-2xl p-6 flex flex-col h-[480px] animate-fade-in max-w-5xl mx-auto">
                     <div className="border-b border-zinc-800 pb-3 flex justify-between items-center">
                       <h4 className="font-bold text-zinc-200 text-sm flex items-center gap-2">
@@ -1548,6 +1592,34 @@ export default function App() {
                       })}
                     </div>
                   </div>
+                )}
+
+                {/* 6. Historical Trends Tab (Phase 6D) */}
+                {activeTab === 'trends' && (
+                  getEffectiveRepoId() ? (
+                    <RepositoryTrends
+                      repositoryId={getEffectiveRepoId()!}
+                      repositoryName={repository.name}
+                      githubUrl={repository.url}
+                      onLoadHistoricalRun={handleLoadHistoricalRun}
+                      loadingRunId={loadingRunId}
+                      allUserRepos={userRepos}
+                      onSelectRepo={(newId) => {
+                        const found = userRepos.find(r => r.id === newId);
+                        if (found) {
+                          setSelectedTrendsRepo(found);
+                        }
+                      }}
+                    />
+                  ) : (
+                    <div className="text-center py-16 px-4 bg-zinc-900/30 border border-zinc-850 rounded-2xl space-y-3">
+                      <Activity className="w-8 h-8 text-indigo-400 mx-auto" />
+                      <h4 className="text-base font-bold text-zinc-200">Repository Record Not Found</h4>
+                      <p className="text-xs text-zinc-400 max-w-sm mx-auto leading-relaxed">
+                        Please sign in with GitHub or select a saved repository from History to view analysis trends.
+                      </p>
+                    </div>
+                  )
                 )}
 
               </div>
@@ -1589,6 +1661,7 @@ export default function App() {
         onDeleteRepo={handleDeleteRepository}
         deletingRepoId={deletingRepoId}
         currentActiveRunId={loadedRunInfo?.id}
+        onSelectRepoTrends={handleSelectRepoTrends}
       />
 
     </div>

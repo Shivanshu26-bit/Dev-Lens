@@ -17,7 +17,8 @@ import {
   Loader2,
   Star,
   Search,
-  Check
+  Check,
+  Activity
 } from 'lucide-react';
 import type { RepositoryListItem, AnalysisRunSummary } from '../types';
 
@@ -33,6 +34,7 @@ interface HistoryDrawerProps {
   onDeleteRepo: (repoId: string) => Promise<void>;
   deletingRepoId: string | null;
   currentActiveRunId?: string | null;
+  onSelectRepoTrends?: (repo: RepositoryListItem) => void;
 }
 
 function formatRelativeTime(dateString: string | null | undefined): string {
@@ -72,6 +74,7 @@ export default function HistoryDrawer({
   onDeleteRepo,
   deletingRepoId,
   currentActiveRunId,
+  onSelectRepoTrends,
 }: HistoryDrawerProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRepoId, setSelectedRepoId] = useState<string | null>(null);
@@ -371,6 +374,20 @@ export default function HistoryDrawer({
 
                       {/* Actions Right */}
                       <div className="flex items-center space-x-1 shrink-0 pt-0.5">
+                        {/* Quick View Trends Action */}
+                        {onSelectRepoTrends && (
+                          <button
+                            onClick={e => {
+                              e.stopPropagation();
+                              onSelectRepoTrends(repo);
+                            }}
+                            title="View historical analysis trends"
+                            className="p-1.5 rounded-lg text-xs text-zinc-500 hover:text-indigo-300 hover:bg-zinc-800 transition-colors cursor-pointer"
+                          >
+                            <Activity className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+
                         {/* Delete Action */}
                         <button
                           onClick={e => handleConfirmDelete(e, repo.id)}
@@ -408,15 +425,26 @@ export default function HistoryDrawer({
                     <div className="border-t border-zinc-850/80 bg-zinc-900/30 p-4 space-y-3">
                       <div className="flex items-center justify-between text-xs">
                         <span className="font-semibold text-zinc-300">Past Analysis Runs</span>
-                        <a
-                          href={repo.github_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-zinc-500 hover:text-zinc-300 inline-flex items-center space-x-1 text-[11px]"
-                        >
-                          <span>Open on GitHub</span>
-                          <ExternalLink className="w-3 h-3" />
-                        </a>
+                        <div className="flex items-center space-x-3">
+                          {onSelectRepoTrends && (
+                            <button
+                              onClick={() => onSelectRepoTrends(repo)}
+                              className="text-indigo-400 hover:text-indigo-300 inline-flex items-center space-x-1.5 text-[11px] font-semibold bg-indigo-950/70 hover:bg-indigo-900/80 border border-indigo-800/80 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
+                            >
+                              <Activity className="w-3 h-3" />
+                              <span>View Trends →</span>
+                            </button>
+                          )}
+                          <a
+                            href={repo.github_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-zinc-500 hover:text-zinc-300 inline-flex items-center space-x-1 text-[11px]"
+                          >
+                            <span>Open on GitHub</span>
+                            <ExternalLink className="w-3 h-3" />
+                          </a>
+                        </div>
                       </div>
 
                       {/* Runs Loading */}

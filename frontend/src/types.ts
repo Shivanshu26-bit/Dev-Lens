@@ -232,3 +232,32 @@ export interface AnalysisRunDetail extends AnalysisRunSummary {
   languages: LanguageDistribution[] | null;
   metadata_json: Record<string, any> | null;
 }
+
+// Phase 6C/6D Repository Trends Interfaces
+export interface TrendPoint {
+  analysis_id: string;
+  analysis_type: string;
+  created_at: string;
+  completed_at: string | null;
+  total_lines: number | null;
+  code_lines: number | null;
+  total_files: number | null;
+  findings_count: number | null;
+  delta_total_lines: number | null;
+  delta_code_lines: number | null;
+  delta_total_files: number | null;
+  delta_findings_count: number | null;
+  pct_change_total_lines: number | null;
+  pct_change_code_lines: number | null;
+  pct_change_total_files: number | null;
+  pct_change_findings_count: number | null;
+}
+
+export interface RepositoryTrendsResponse {
+  repository_id: string;
+  github_url: string;
+  owner: string;
+  name: string;
+  total_runs_analyzed: number;
+  trends: TrendPoint[];
+}
