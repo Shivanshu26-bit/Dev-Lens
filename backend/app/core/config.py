@@ -17,18 +17,21 @@ class Settings(BaseSettings):
     @classmethod
     def assemble_cors_origins(cls, v: Union[str, List[str]]) -> List[str]:
         if isinstance(v, str):
+            v_trimmed = v.strip()
+            if not v_trimmed:
+                return []
             try:
                 # Try parsing if it's a JSON array format
-                parsed = json.loads(v)
+                parsed = json.loads(v_trimmed)
                 if isinstance(parsed, list):
-                    return [str(item) for item in parsed]
+                    return [str(item).strip() for item in parsed if str(item).strip()]
             except json.JSONDecodeError:
                 pass
             
             # Fallback to comma separated
-            return [i.strip() for i in v.split(",") if i.strip()]
+            return [i.strip() for i in v_trimmed.split(",") if i.strip()]
         elif isinstance(v, list):
-            return [str(item) for item in v]
+            return [str(item).strip() for item in v if str(item).strip()]
         raise ValueError(f"Invalid CORS origins format: {v}")
 
     # Database Configuration (Phase 5A)
@@ -74,13 +77,29 @@ class Settings(BaseSettings):
     AI_REQUEST_TIMEOUT_SECONDS: float = 60.0
 
     @model_validator(mode="after")
-    def validate_production_secret_key(self) -> "Settings":
+    def validate_production_security_settings(self) -> "Settings":
+        # 1. Insecure default SECRET_KEY check for production
         insecure_default = "devlens-insecure-secret-key-change-in-production-32b"
         if self.SESSION_COOKIE_SECURE and (self.SECRET_KEY == insecure_default or "devlens-insecure" in self.SECRET_KEY):
             raise ValueError(
                 "Insecure default SECRET_KEY cannot be used in production when SESSION_COOKIE_SECURE is enabled. "
                 "Please configure a strong, unique SECRET_KEY."
             )
+
+        # 2. Cookie SameSite validation
+        samesite_lower = self.SESSION_COOKIE_SAMESITE.lower().strip()
+        if samesite_lower not in {"lax", "strict", "none"}:
+            raise ValueError(
+                f"Invalid SESSION_COOKIE_SAMESITE: '{self.SESSION_COOKIE_SAMESITE}'. Must be 'lax', 'strict', or 'none'."
+            )
+        self.SESSION_COOKIE_SAMESITE = samesite_lower
+
+        # 3. Modern browser requirement: SameSite=None requires Secure=True
+        if self.SESSION_COOKIE_SAMESITE == "none" and not self.SESSION_COOKIE_SECURE:
+            raise ValueError(
+                "SESSION_COOKIE_SAMESITE='none' requires SESSION_COOKIE_SECURE=True in modern browsers to prevent cookie rejection."
+            )
+
         return self
 
     model_config = SettingsConfigDict(

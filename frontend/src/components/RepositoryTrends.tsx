@@ -24,6 +24,7 @@ import type {
   TrendPoint,
   RepositoryListItem
 } from '../types';
+import { API_BASE_URL } from '../config';
 
 interface RepositoryTrendsProps {
   repositoryId: string;
@@ -486,8 +487,7 @@ export default function RepositoryTrends({
     setLoading(true);
     setError(null);
     try {
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-      const res = await fetch(`${apiUrl}/api/repositories/${repoId}/trends`, {
+      const res = await fetch(`${API_BASE_URL}/api/repositories/${repoId}/trends`, {
         credentials: 'include',
       });
       if (!res.ok) {

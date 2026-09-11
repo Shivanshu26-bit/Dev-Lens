@@ -21,6 +21,7 @@ import {
   Activity
 } from 'lucide-react';
 import type { RepositoryListItem, AnalysisRunSummary } from '../types';
+import { API_BASE_URL } from '../config';
 
 interface HistoryDrawerProps {
   isOpen: boolean;
@@ -92,8 +93,7 @@ export default function HistoryDrawer({
       setRunsLoading(true);
       setRunsError(null);
       try {
-        const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-        const res = await fetch(`${apiUrl}/api/repositories/${selectedRepoId}/analyses?limit=25`, {
+        const res = await fetch(`${API_BASE_URL}/api/repositories/${selectedRepoId}/analyses?limit=25`, {
           credentials: 'include',
         });
         if (!res.ok) {

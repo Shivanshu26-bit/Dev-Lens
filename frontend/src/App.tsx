@@ -42,6 +42,7 @@ import type {
 } from './types';
 import HistoryDrawer from './components/HistoryDrawer';
 import RepositoryTrends from './components/RepositoryTrends';
+import { API_BASE_URL } from './config';
 
 const GithubIcon = (props: React.SVGProps<SVGSVGElement>) => (
   <svg
@@ -121,8 +122,7 @@ export default function App() {
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-        const res = await fetch(`${apiUrl}/api/auth/me`, {
+        const res = await fetch(`${API_BASE_URL}/api/auth/me`, {
           credentials: 'include',
         });
         if (res.ok) {
@@ -149,14 +149,12 @@ export default function App() {
   }, []);
 
   const handleLogin = () => {
-    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-    window.location.href = `${apiUrl}/api/auth/github/login`;
+    window.location.href = `${API_BASE_URL}/api/auth/github/login`;
   };
 
   const handleLogout = async () => {
     try {
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-      await fetch(`${apiUrl}/api/auth/logout`, {
+      await fetch(`${API_BASE_URL}/api/auth/logout`, {
         method: 'POST',
         credentials: 'include',
       });
@@ -179,8 +177,7 @@ export default function App() {
     setReposLoading(true);
     setReposError(null);
     try {
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-      const res = await fetch(`${apiUrl}/api/repositories`, {
+      const res = await fetch(`${API_BASE_URL}/api/repositories`, {
         credentials: 'include',
       });
       if (!res.ok) {
@@ -211,8 +208,7 @@ export default function App() {
     setLoadingRunId(runId);
     setErrorMsg(null);
     try {
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-      const res = await fetch(`${apiUrl}/api/analyses/${runId}`, {
+      const res = await fetch(`${API_BASE_URL}/api/analyses/${runId}`, {
         credentials: 'include',
       });
       if (!res.ok) {
@@ -260,8 +256,7 @@ export default function App() {
   const handleDeleteRepository = async (repoId: string) => {
     setDeletingRepoId(repoId);
     try {
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-      const res = await fetch(`${apiUrl}/api/repositories/${repoId}`, {
+      const res = await fetch(`${API_BASE_URL}/api/repositories/${repoId}`, {
         method: 'DELETE',
         credentials: 'include',
       });
@@ -285,8 +280,7 @@ export default function App() {
   useEffect(() => {
     const checkBackendHealth = async () => {
       try {
-        const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-        const response = await fetch(`${apiUrl}/health`);
+        const response = await fetch(`${API_BASE_URL}/health`);
         if (response.ok) {
           setBackendStatus('connected');
         } else {
@@ -327,12 +321,11 @@ export default function App() {
     setReportData(null);
     setAiData(null);
 
-    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-    let endpoint = `${apiUrl}/api/repositories/analyze`;
+    let endpoint = `${API_BASE_URL}/api/repositories/analyze`;
     if (scanType === 'deep') {
-      endpoint = `${apiUrl}/api/repositories/analyze/report`;
+      endpoint = `${API_BASE_URL}/api/repositories/analyze/report`;
     } else if (scanType === 'ai') {
-      endpoint = `${apiUrl}/api/repositories/analyze/ai`;
+      endpoint = `${API_BASE_URL}/api/repositories/analyze/ai`;
     }
 
     try {
@@ -387,9 +380,8 @@ export default function App() {
     setErrorMsg(null);
     setScanType('ai');
 
-    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
     try {
-      const response = await fetch(`${apiUrl}/api/repositories/analyze/ai`, {
+      const response = await fetch(`${API_BASE_URL}/api/repositories/analyze/ai`, {
         method: 'POST',
         credentials: 'include',
         headers: {
