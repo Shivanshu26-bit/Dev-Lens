@@ -5,6 +5,8 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.rate_limit import limiter, rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 from app.db.session import get_db
 from app.api.repositories import router as repositories_router
 from app.api.analyses import router as analyses_router
@@ -17,6 +19,10 @@ app = FastAPI(
     description="DevLens — AI-powered GitHub repository analysis platform backend",
     version="0.1.0"
 )
+
+# Register rate limiter state and 429 exception handler
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
 # Register routers
 app.include_router(auth_router)

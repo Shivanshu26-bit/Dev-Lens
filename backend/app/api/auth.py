@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 import httpx
 
 from app.core.config import settings
+from app.core.rate_limit import limiter, get_client_ip
 from app.core.security import (
     create_oauth_state,
     verify_oauth_state,
@@ -53,7 +54,8 @@ def get_current_user(
 
 
 @router.get("/github/login")
-def github_login(response: Response):
+@limiter.limit(lambda: settings.RATE_LIMIT_AUTH_LOGIN, key_func=get_client_ip)
+def github_login(request: Request, response: Response):
     """
     Initiates GitHub OAuth flow by generating a signed CSRF state and redirecting to GitHub.
     """

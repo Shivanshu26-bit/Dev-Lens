@@ -76,6 +76,14 @@ class Settings(BaseSettings):
     MAX_TOTAL_EVIDENCE_CHARS: int = 60000
     AI_REQUEST_TIMEOUT_SECONDS: float = 60.0
 
+    # API Rate Limiting Configuration
+    RATE_LIMIT_ENABLED: bool = True
+    REDIS_URL: str = ""
+    RATE_LIMIT_STORAGE_URL: str = ""
+    RATE_LIMIT_AUTH_LOGIN: str = "20/minute"
+    RATE_LIMIT_ANALYZE: str = "30/minute"
+    RATE_LIMIT_AI_ANALYZE: str = "10/minute"
+
     @model_validator(mode="after")
     def validate_production_security_settings(self) -> "Settings":
         # 1. Insecure default SECRET_KEY check for production

@@ -1,8 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
+from app.core.rate_limit import limiter, get_rate_limit_key
 from app.db.session import get_db
 from app.models.user import User
 from app.models.analysis import AnalysisType
@@ -153,7 +155,9 @@ class AIAnalyzeResponse(BaseModel):
 
 
 @router.post("/analyze", response_model=AnalyzeResponse)
+@limiter.limit(lambda: settings.RATE_LIMIT_ANALYZE, key_func=get_rate_limit_key)
 async def analyze_repository(
+    request: Request,
     payload: AnalyzeRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -282,7 +286,9 @@ async def analyze_repository_report(
 
 
 @router.post("/analyze/ai", response_model=AIAnalyzeResponse)
+@limiter.limit(lambda: settings.RATE_LIMIT_AI_ANALYZE, key_func=get_rate_limit_key)
 async def analyze_repository_ai(
+    request: Request,
     payload: AnalyzeRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
